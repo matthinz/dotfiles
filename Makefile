@@ -1,6 +1,6 @@
 .PHONY: install
 
-install: $(HOME)/.zshrc $(HOME)/.ssh/config $(HOME)/.vim/colors/solarized.vim $(HOME)/.vimrc
+install: $(HOME)/.zshrc $(HOME)/.ssh/config $(HOME)/.vim/colors/solarized.vim $(HOME)/.vimrc $(HOME)/Library/KeyBindings/DefaultKeyBinding.dict
 
 $(HOME)/.%: .%
 	-test -f $@ && mv $@ $@.bak
@@ -18,4 +18,10 @@ $(HOME)/.ssh/config: .ssh/config $(HOME)/.ssh
 
 $(HOME)/.vim/colors/solarized.vim: .vim/colors/solarized.vim
 	mkdir -p $(shell dirname $@)
+	ln $< $@
+
+$(HOME)/Library/KeyBindings/DefaultKeyBinding.dict: Library/KeyBindings/DefaultKeyBinding.dict
+	mkdir -p $(shell dirname $@)
+	-test -f $@ && mv $@ $@.bak
+	-rm $@
 	ln $< $@
