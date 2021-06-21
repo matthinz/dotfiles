@@ -1,8 +1,13 @@
 .PHONY: install
 
-install: $(HOME)/.zshrc $(HOME)/.ssh/config $(HOME)/.vim/colors/solarized.vim $(HOME)/.vimrc $(HOME)/Library/KeyBindings/DefaultKeyBinding.dict
+install: $(HOME)/.gitignore $(HOME)/.zshrc $(HOME)/.ssh/config $(HOME)/.vim/colors/solarized.vim $(HOME)/.vimrc $(HOME)/Library/KeyBindings/DefaultKeyBinding.dict
 
 $(HOME)/.%: .%
+	-test -f $@ && mv $@ $@.bak
+	-rm $@
+	ln $< $@
+
+$(HOME)/.gitignore: .gitignore-GLOBAL
 	-test -f $@ && mv $@ $@.bak
 	-rm $@
 	ln $< $@
