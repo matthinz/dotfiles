@@ -1,3 +1,10 @@
+PATH=$PATH:$HOME/.local/bin
+
+# Python USER_BASE support
+if which python3 > /dev/null 2>&1; then
+  PATH=$PATH:$(python3 -m site --user-base)/bin
+fi
+
 # Path to your oh-my-zsh installation.
 export ZSH="${HOME}/.oh-my-zsh"
 
