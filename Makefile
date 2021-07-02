@@ -11,6 +11,7 @@ $(HOME)/.gitignore: .gitignore-GLOBAL
 	-test -f $@ && mv $@ $@.bak
 	-rm $@
 	ln $< $@
+	git config --global core.excludesfile $(HOME)/.gitignore
 
 $(HOME)/.ssh:
 	mkdir -p $@
