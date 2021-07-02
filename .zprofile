@@ -1,7 +1,8 @@
 
 # Pyenv
-if which pyenv > /dev/null 2>&1; then
-  export PYENV_ROOT="$HOME/.pyenv"
+PYENV_ROOT="$HOME/.pyenv"
+if [ -x "$PYENV_ROOT/bin/pyenv" ]; then
+  export PYENV_ROOT
   export PATH="$PYENV_ROOT/bin:$PATH"
   eval "$(pyenv init --path)"
 fi
