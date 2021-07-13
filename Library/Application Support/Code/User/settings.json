@@ -1,0 +1,13 @@
+{
+  "workbench.activityBar.visible": true,
+  "window.zoomLevel": 0,
+  "diffEditor.ignoreTrimWhitespace": true,
+  "workbench.editorAssociations": {
+      "*.ipynb": "jupyter-notebook"
+  },
+  "notebook.cellToolbarLocation": {
+      "default": "right",
+      "jupyter-notebook": "left"
+  },
+  "window.openFoldersInNewWindow": "on"
+}
