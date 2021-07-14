@@ -1,4 +1,5 @@
-PATH=$PATH:$HOME/.local/bin
+# .zshrc is evaluated for interactive shells. It is loaded
+# _after_ .zprofile
 
 # Path to your oh-my-zsh installation.
 export ZSH="${HOME}/.oh-my-zsh"
