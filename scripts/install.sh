@@ -49,6 +49,5 @@ install_file .vimrc
 install_file .zprofile
 install_file .zshrc
 install_directory .ssh
-install_directory .vim
 install_directory Library
 
