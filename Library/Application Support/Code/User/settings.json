@@ -1,3 +1,6 @@
 {
-  "window.openFoldersInNewWindow": "on"
+  "window.openFoldersInNewWindow": "on",
+  "workbench.editorAssociations": {
+    "*.ipynb": "jupyter-notebook"
+  }
 }
