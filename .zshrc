@@ -18,3 +18,7 @@ source $ZSH/oh-my-zsh.sh
 if which pyenv > /dev/null 2>&1; then
   eval "$(pyenv init -)"
 fi
+
+if which rbenv > /dev/null 2>&1; then
+  eval "$(rbenv init -)"
+fi
