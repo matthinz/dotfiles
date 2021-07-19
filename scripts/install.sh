@@ -2,16 +2,20 @@
 
 set -euo pipefail
 
+FILES_DIR=files
+INSTALLER_SUFFIX=.install.sh
+
 IFS=$'\n'
 
 function install_file {
   FILE="$1"; shift
-  DEST_FILE="${1:-${HOME}/${FILE}}"
+  SOURCE_FILE="${FILES_DIR}/${FILE}"
+  DEST_FILE="${HOME}/${FILE}"
 
-if [ -f "$DEST_FILE" ]; then
+  if [ -f "$DEST_FILE" ]; then
 
     EXISTING_MD5=$(md5 -q "$DEST_FILE")
-    NEW_MD5=$(md5 -q "$FILE")
+    NEW_MD5=$(md5 -q "$SOURCE_FILE")
 
     if [ "$NEW_MD5" != "$EXISTING_MD5" ]; then
       echo "Back up existing file: $DEST_FILE"
@@ -20,34 +24,27 @@ if [ -f "$DEST_FILE" ]; then
     else
       rm "$DEST_FILE"
     fi
-fi
+  fi
 
   mkdir -p "$(dirname "$DEST_FILE")"
 
-  echo "$FILE -> $DEST_FILE"
-  ln "$FILE" "$DEST_FILE"
+  echo "$SOURCE_FILE -> $DEST_FILE"
+  ln "$SOURCE_FILE" "$DEST_FILE"
 
-  INSTALL_SCRIPT="${FILE}.install.sh"
-  if [ -f "$INSTALL_SCRIPT" ]; then
+  INSTALL_SCRIPT="${FILE}${INSTALLER_SUFFIX}"
+  if test -f "$INSTALL_SCRIPT"; then
     source "$INSTALL_SCRIPT" "$DEST_FILE"
   fi
 }
 
-function install_directory {
-  DIR=$1; shift
 
-  for f in $(find $DIR -type f)
-  do
-    install_file "$f"
-  done
-}
+for f in $(find $FILES_DIR -type f | sed "s#^${FILES_DIR}/##")
+do
+  if [[ "$f" == *.install.sh ]]; then
+    # This is an installer. Ignore.
+    continue
+  fi
 
-install_file .gitignore-GLOBAL "${HOME}/.gitignore"
-
-
-install_file .vimrc
-install_file .zprofile
-install_file .zshrc
-install_directory .ssh
-install_directory Library
+  install_file "$f"
+done
 
