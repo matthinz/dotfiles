@@ -48,3 +48,4 @@ do
   install_file "$f"
 done
 
+scripts/macos.sh
