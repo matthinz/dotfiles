@@ -3,11 +3,21 @@
   "workbench.editorAssociations": {
     "*.ipynb": "jupyter-notebook"
   },
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
   "[json]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[jsonc]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
-  "editor.rulers": [{ "column": 80 }, { "column": 120 }]
+  "editor.rulers": [
+    {
+      "column": 80
+    },
+    {
+      "column": 120
+    }
+  ],
 }
