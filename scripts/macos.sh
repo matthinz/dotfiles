@@ -46,3 +46,4 @@ defaults write com.apple.desktopservices DSDontWriteUSBStores -bool true
 
 # Don’t show recent applications in Dock
 defaults write com.apple.dock show-recents -bool false
+killall Dock
