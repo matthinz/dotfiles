@@ -20,4 +20,11 @@
       "column": 120
     }
   ],
+  "window.zoomLevel": 1,
+  "redhat.telemetry.enabled": false,
+  "editor.accessibilitySupport": "off",
+  "workbench.colorTheme": "Solarized Dark",
+  "markdown.styles": [
+    "https://cdn.jsdelivr.net/gh/dhdhagar/vscode-md-preview-light/style.min.css"
+  ]
 }
