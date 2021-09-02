@@ -8,5 +8,9 @@
     "key": "f2",
     "command": "-editor.action.rename",
     "when": "editorHasRenameProvider && editorTextFocus && !editorReadonly"
+  },
+  {
+    "key": "f5",
+    "command": "editor.action.sortLinesAscending"
   }
 ]
