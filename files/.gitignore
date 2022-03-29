@@ -1,2 +1,6 @@
 # Ignore files prefixed with `MH-`
 MH-*
+
+# Ignore remnants of git operations
+*.orig
+
