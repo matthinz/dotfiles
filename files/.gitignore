@@ -4,3 +4,7 @@ MH-*
 # Ignore remnants of git operations
 *.orig
 
+# .vscode folders probably _should_ be committed to projects, but don't do it
+# by default--it gets annoying to try to maintain one and ensure it's not
+# committed. use git add --force to bypass this.
+/.vscode
