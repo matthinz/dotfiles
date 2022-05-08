@@ -15,4 +15,3 @@ ZSH_THEME="robbyrussell"
 plugins=(asdf git)
 
 source $ZSH/oh-my-zsh.sh
-
