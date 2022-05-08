@@ -1,0 +1,8 @@
+brew "asdf"
+brew "deno"
+brew "ffmpeg"
+brew "git"
+brew "git-lfs"
+brew "go"
+brew "pandoc"
+brew "the_silver_searcher"

@@ -49,3 +49,4 @@ do
 done
 
 scripts/macos.sh
+scripts/brew.sh
