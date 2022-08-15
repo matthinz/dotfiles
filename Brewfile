@@ -1,4 +1,5 @@
 brew "asdf"
+brew "awscli"
 brew "deno"
 brew "ffmpeg"
 brew "git"
