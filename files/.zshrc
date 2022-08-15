@@ -14,4 +14,8 @@ ZSH_THEME="robbyrussell"
 
 plugins=(asdf git)
 
+LOCAL_ZSHRC=~/.zshrc.$(uname -n)
+
+[ -f $LOCAL_ZSHRC ] && source $LOCAL_ZSHRC
+
 source $ZSH/oh-my-zsh.sh
