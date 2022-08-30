@@ -12,5 +12,11 @@
   {
     "key": "f5",
     "command": "editor.action.sortLinesAscending"
+  },
+  {
+    "key": "ctrl+shift+t",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": { "text": "'${file}'" },
+    "when": "terminalFocus"
   }
 ]
