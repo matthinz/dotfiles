@@ -16,7 +16,7 @@
   {
     "key": "ctrl+shift+t",
     "command": "workbench.action.terminal.sendSequence",
-    "args": { "text": "'${file}'" },
+    "args": { "text": "'${relativeFile}'" },
     "when": "terminalFocus"
   }
 ]
