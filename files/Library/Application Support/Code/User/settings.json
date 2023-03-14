@@ -32,5 +32,6 @@
   ],
   "editor.inlineSuggest.enabled": true,
   "editor.experimental.stickyScroll.enabled": true,
-  "extensions.ignoreRecommendations": true
+  "extensions.ignoreRecommendations": true,
+  "python.terminal.activateEnvironment": false
 }
