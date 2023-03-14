@@ -1,6 +1,10 @@
 # .zshrc is evaluated for interactive shells. It is loaded
 # _after_ .zprofile
 
+# Use Up + Down arrows to search history
+bindkey "^[[A" history-beginning-search-backward
+bindkey "^[[B" history-beginning-search-forward
+
 export EDITOR=vim
 export PAGER=
 export PATH=${HOME}/bin:$PATH
