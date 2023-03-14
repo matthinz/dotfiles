@@ -12,7 +12,13 @@ export PATH=${HOME}/bin:$PATH
 LOCAL_ZSHRC=~/.zshrc.$(uname -n)
 [ -f $LOCAL_ZSHRC ] && source $LOCAL_ZSHRC
 
-if which brew > /dev/null 2>&1; then
+  if type brew &>/dev/null; then
+    FPATH=$(brew --prefix)/share/zsh-completions:$FPATH
+    autoload -Uz compinit
+    compinit
+  fi
+
+if type brew &> /dev/null; then
   ASDF_PREFIX=$(brew --prefix asdf 2>/dev/null)
   if [ "$ASDF_PREFIX" != "" ]; then
     . "${ASDF_PREFIX}/libexec/asdf.sh"
