@@ -34,5 +34,6 @@
   "editor.experimental.stickyScroll.enabled": true,
   "extensions.ignoreRecommendations": true,
   "python.terminal.activateEnvironment": false,
-  "terminal.integrated.showExitAlert": false
+  "terminal.integrated.showExitAlert": false,
+  "editor.fontFamily": "Cascadia Code, Menlo, Monaco, 'Courier New', monospace"
 }
