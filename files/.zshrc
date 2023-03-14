@@ -5,6 +5,10 @@
 bindkey "^[[A" history-beginning-search-backward
 bindkey "^[[B" history-beginning-search-forward
 
+# Home + End move to beginning / end of line
+bindkey '^[[H' beginning-of-line
+bindkey '^[[F' end-of-line
+
 export EDITOR=vim
 export PAGER=
 export PATH=${HOME}/bin:$PATH
