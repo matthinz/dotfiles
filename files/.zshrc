@@ -9,6 +9,11 @@ bindkey "^[[B" history-beginning-search-forward
 bindkey '^[[H' beginning-of-line
 bindkey '^[[F' end-of-line
 
+# Git autocomplete
+zstyle ':completion:*:*:git:*' script ~/.zsh/git-completion.bash
+fpath=(~/.zsh $fpath)
+autoload -Uz compinit && compinit
+
 export EDITOR=vim
 export PAGER=
 export PATH=${HOME}/bin:$PATH
