@@ -9,6 +9,9 @@ bindkey "^[[B" history-beginning-search-forward
 bindkey '^[[H' beginning-of-line
 bindkey '^[[F' end-of-line
 
+# Case-insensitive completion
+zstyle ':completion:*' matcher-list 'm:{[:lower:][:upper:]}={[:upper:][:lower:]}' 'r:|=*' 'l:|=* r:|=*'
+
 # Git autocomplete
 zstyle ':completion:*:*:git:*' script ~/.zsh/git-completion.bash
 fpath=(~/.zsh $fpath)
