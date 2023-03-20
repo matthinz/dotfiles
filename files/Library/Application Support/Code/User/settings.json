@@ -31,7 +31,7 @@
     "https://cdn.jsdelivr.net/gh/dhdhagar/vscode-md-preview-light/style.min.css"
   ],
   "editor.inlineSuggest.enabled": true,
-  "editor.experimental.stickyScroll.enabled": true,
+  "editor.stickyScroll.enabled": true,
   "extensions.ignoreRecommendations": true,
   "python.terminal.activateEnvironment": false,
   "terminal.integrated.showExitAlert": false,
