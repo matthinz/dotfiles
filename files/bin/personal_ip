@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [ "${PERSONAL_COMPUTER_NAME:-}" == "" ]; then
+  echo 'You need to export $PERSONAL_COMPUTER_NAME'
+  exit 1
+fi
+
+if [ "${PERSONAL_COMPUTER_USERNAME:-}" == "" ]; then
+  echo 'You need to export $PERSONAL_COMPUTER_USERNAME'
+  exit 1
+fi
+
+IP=$(ssh $PERSONAL_COMPUTER_USERNAME@$PERSONAL_COMPUTER_NAME -C 'ifconfig | grep 169\\.' | cut -f 2 -d' ')
+
+if [ "$IP" == "" ]; then
+  echo "Could not determine IP for $PERSONAL_COMPUTER_NAME"
+  exit 1
+fi
+
+echo "$IP" | pbcopy
+echo "IP is $IP (also copied to clipboard)"
