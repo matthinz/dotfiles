@@ -50,3 +50,4 @@ done
 
 scripts/macos.sh
 scripts/brew.sh
+scripts/git.sh
