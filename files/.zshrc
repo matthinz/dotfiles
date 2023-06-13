@@ -37,5 +37,10 @@ if type brew &> /dev/null; then
   fi
 fi
 
+# Yubikey
+if type ykman &>/dev/null; then
+  export YKMAN_OATH_CREDENTIAL_NAME=$(ykman oath accounts list)
+fi
+
 # https://starship.rs/
 which starship > /dev/null 2>&1 && eval "$(starship init zsh)"
