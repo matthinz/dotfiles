@@ -7,7 +7,7 @@ function brew_install {
   if brew list $PACKAGE > /dev/null 2>&1; then
     echo "$PACKAGE is already installed."
   else
-    brew install $PACKGE
+    brew install $PACKAGE
   fi
 }
 
