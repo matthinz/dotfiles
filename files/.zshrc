@@ -42,5 +42,10 @@ if type ykman &>/dev/null; then
   export YKMAN_OATH_CREDENTIAL_NAME=$(ykman oath accounts list)
 fi
 
+# Zscaler
+if [ -d '/Applications/Zscaler/Zscaler.app' ]; then
+  export NODE_EXTRA_CA_CERTS=$HOME/.zscaler-root-ca.cer
+fi
+
 # https://starship.rs/
 which starship > /dev/null 2>&1 && eval "$(starship init zsh)"
