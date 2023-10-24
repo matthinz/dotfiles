@@ -18,6 +18,7 @@ brew_install git
 brew_install git-lfs
 brew_install go
 brew_install pandoc
+brew_install rectangle
 brew_install starship
 brew_install the_silver_searcher
 brew_install zsh-completions
