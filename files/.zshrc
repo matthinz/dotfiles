@@ -47,5 +47,11 @@ if [ -d '/Applications/Zscaler/Zscaler.app' ]; then
   export NODE_EXTRA_CA_CERTS=$HOME/.zscaler-root-ca.cer
 fi
 
+# diff-so-fancy
+if type diff-so-fancy &>/dev/null; then
+  git config --global core.pager "diff-so-fancy | less --tabs=4 -RFX"
+  git config --global interactive.diffFilter "diff-so-fancy --patch"
+fi
+
 # https://starship.rs/
 which starship > /dev/null 2>&1 && eval "$(starship init zsh)"

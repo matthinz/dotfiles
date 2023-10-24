@@ -12,6 +12,7 @@ function brew_install {
 }
 
 brew_install asdf
+brew_install diff-so-fancy
 brew_install ffmpeg
 brew_install git
 brew_install git-lfs
