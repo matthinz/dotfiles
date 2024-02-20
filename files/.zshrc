@@ -1,6 +1,12 @@
 # .zshrc is evaluated for interactive shells. It is loaded
 # _after_ .zprofile
 
+# Preserve history
+HISTFILE=~/.zsh_history
+HISTSIZE=10000
+SAVEHIST=10000
+setopt INC_APPEND_HISTORY # Write to history immediately
+
 # Use Up + Down arrows to search history
 bindkey "^[[A" history-beginning-search-backward
 bindkey "^[[B" history-beginning-search-forward
