@@ -50,7 +50,7 @@ fi
 
 # Zscaler
 if [ -d '/Applications/Zscaler/Zscaler.app' ]; then
-  export NODE_EXTRA_CA_CERTS=$HOME/.zscaler-root-ca.cer
+  export NODE_EXTRA_CA_CERTS=$HOME/.zscaler-root-ca.pem
 fi
 
 # diff-so-fancy
