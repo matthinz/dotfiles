@@ -36,5 +36,9 @@
   "python.terminal.activateEnvironment": false,
   "terminal.integrated.showExitAlert": false,
   "terminal.integrated.fontSize": 15,
-  "editor.fontFamily": "Cascadia Code, Menlo, Monaco, 'Courier New', monospace"
+  "editor.fontFamily": "Cascadia Code, Menlo, Monaco, 'Courier New', monospace",
+  "workbench.editor.limit.enabled": true,
+  "workbench.editor.limit.perEditorGroup": true,
+  "workbench.editor.limit.excludeDirty": true,
+  "workbench.editor.limit.value": 3
 }
