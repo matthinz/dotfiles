@@ -26,7 +26,6 @@ autoload -Uz compinit && compinit
 export EDITOR=vim
 export PAGER=
 export PATH=${HOME}/bin:$PATH
-export GPG_TTY=$(tty)
 
 LOCAL_ZSHRC=~/.zshrc.$(uname -n)
 [ -f $LOCAL_ZSHRC ] && source $LOCAL_ZSHRC
