@@ -36,13 +36,6 @@ if type brew &>/dev/null; then
   compinit
 fi
 
-if type brew &> /dev/null; then
-  ASDF_PREFIX=$(brew --prefix asdf 2>/dev/null)
-  if [ "$ASDF_PREFIX" != "" ]; then
-    . "${ASDF_PREFIX}/libexec/asdf.sh"
-  fi
-fi
-
 # Yubikey
 if type ykman &>/dev/null; then
   export YKMAN_OATH_CREDENTIAL_NAME=$(ykman oath accounts list)
