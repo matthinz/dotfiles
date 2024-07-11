@@ -37,7 +37,7 @@ if type brew &>/dev/null; then
 fi
 
 # Yubikey
-if type ykman &>/dev/null; then
+if type ykman &>/dev/null && [ $(ykman list | wc -l) -gt 0 ]; then
   export YKMAN_OATH_CREDENTIAL_NAME=$(ykman oath accounts list)
 fi
 
