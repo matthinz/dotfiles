@@ -127,4 +127,6 @@ make_file README.md <<END
 
 END
 
+git commit -am "Initial commit"
+
 code .
