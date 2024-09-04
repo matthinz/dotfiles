@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+function make_file {
+  FILE=${1}
+
+  if [ -f "$FILE" ]; then
+    echo "$FILE already exists." >&2
+    return
+  fi
+
+  echo "Creating $FILE..." >&2
+
+  DIR=$(dirname "${FILE}")
+  if [ ! -d "$DIR" ]; then
+    mkdir -p "$DIR"
+  fi
+
+  cat > $FILE
+}
+
+PROJECT_NAME=${1:-$(basename $(pwd))}
+
+if [ $(basename $(pwd)) != "$PROJECT_NAME" ]; then
+  if [ -d "$PROJECT_NAME" ]; then
+    echo "$PROJECT_NAME directory exists. Using that..."
+  else
+    mkdir "$PROJECT_NAME"
+  fi
+  cd "$PROJECT_NAME"
+fi
+
+make_file .nvmrc <<END
+lts/*
+
+END
+
+make_file package.json <<END
+{
+  "name": "$PROJECT_NAME",
+  "version": "0.0.1",
+  "main": "dist/index.js",
+  "license": "CC0-1.0",
+  "scripts": {
+    "build": "rm -rf dist && tsc",
+    "start": "node --enable-source-maps dist/index.js",
+    "test": "jest"
+  },
+  "jest": {
+    "roots": [
+      "dist"
+    ]
+  }
+}
+
+END
+
+yarn add --dev \
+  jest \
+  prettier \
+  typescript \
+  @tsconfig/recommended \
+  @types/jest \
+  @types/node
+
+if [ ! -d .git ]; then
+  git init
+fi
+
+make_file .vscode/settings.json <<END
+{
+  "[json]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[jsonc]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescript]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  }
+}
+
+END
+
+make_file .editorconfig <<END
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_size = 2
+indent_style = space
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[Makefile]
+indent_style = tab
+
+END
+
+make_file .gitignore <<END
+*.js
+*.orig
+
+node_modules
+
+.DS_Store
+
+END
+
+make_file .tsconfig.json <<END
+{
+  "extends": "@tsconfig/recommended/tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "sourceMap": true,
+    "declaration": true
+  }
+}
+
+make_file README.md <<END
+# ${PROJECT_NAME}
+
+END
