@@ -126,3 +126,5 @@ make_file README.md <<END
 # ${PROJECT_NAME}
 
 END
+
+code .
