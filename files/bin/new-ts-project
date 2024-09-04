@@ -122,6 +122,8 @@ make_file .tsconfig.json <<END
   }
 }
 
+END
+
 make_file README.md <<END
 # ${PROJECT_NAME}
 
