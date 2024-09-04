@@ -129,6 +129,6 @@ make_file README.md <<END
 
 END
 
-git commit -am "Initial commit"
+git add . && git commit -m "Initial commit"
 
 code .
