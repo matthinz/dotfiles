@@ -31,8 +31,9 @@ function install_file {
   echo "$SOURCE_FILE -> $DEST_FILE"
   ln "$SOURCE_FILE" "$DEST_FILE"
 
-  INSTALL_SCRIPT="${FILE}${INSTALLER_SUFFIX}"
+  INSTALL_SCRIPT="${SOURCE_FILE}${INSTALLER_SUFFIX}"
   if test -f "$INSTALL_SCRIPT"; then
+    echo "Executing install script $INSTALL_SCRIPT"
     source "$INSTALL_SCRIPT" "$DEST_FILE"
   fi
 }
