@@ -52,5 +52,8 @@ if type diff-so-fancy &>/dev/null; then
   git config --global interactive.diffFilter "diff-so-fancy --patch"
 fi
 
+# Retain colors when piping to less
+export LESS="-r"
+
 # https://starship.rs/
 which starship > /dev/null 2>&1 && eval "$(starship init zsh)"
