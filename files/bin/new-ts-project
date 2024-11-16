@@ -31,8 +31,16 @@ if [ $(basename $(pwd)) != "$PROJECT_NAME" ]; then
   cd "$PROJECT_NAME"
 fi
 
+DESIRED_NODE_VERSION=$(asdf nodejs resolve lts --latest-available)
+ACTUAL_NODE_VERSION=$(node --version)
+
+if [ "${DESIRED_NODE_VERSION}" != "${ACTUAL_NODE_VERSION}" ]; then
+  echo "Installing Node ${DESIRED_NODE_VERSION}..."
+  asdf install nodejs ${DESIRED_NODE_VERSION}
+fi
+
 make_file .nvmrc <<END
-lts/*
+${DESIRED_NODE_VERSION}
 
 END
 
@@ -41,11 +49,19 @@ make_file package.json <<END
   "name": "$PROJECT_NAME",
   "version": "0.0.1",
   "main": "dist/index.js",
+  "bin": {
+    "${PROJECT_NAME}": "dist/cli.js"
+  },
+  "engines": {
+    "node": "^${DESIRED_NODE_VERSION}"
+  },
   "license": "CC0-1.0",
   "scripts": {
-    "build": "rm -rf dist && tsc",
-    "start": "node --enable-source-maps dist/index.js",
-    "test": "jest"
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "format": "prettier --write **/*",
+    "start": "node --enable-source-maps dist/cli.js",
+    "test": "yarn build && jest"
   },
   "jest": {
     "roots": [
@@ -59,6 +75,7 @@ END
 yarn add --dev \
   jest \
   prettier \
+  prettier-plugin-organize-imports \
   typescript \
   @tsconfig/recommended \
   @types/jest \
@@ -70,6 +87,14 @@ fi
 
 make_file .vscode/settings.json <<END
 {
+  "[javascript]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[javascriptreact]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
   "[json]": {
     "editor.formatOnSave": true,
     "editor.defaultFormatter": "esbenp.prettier-vscode"
@@ -79,6 +104,10 @@ make_file .vscode/settings.json <<END
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[typescript]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescriptreact]": {
     "editor.formatOnSave": true,
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   }
@@ -103,7 +132,12 @@ indent_style = tab
 END
 
 make_file .gitignore <<END
+*.d.ts
 *.js
+*.js.map
+
+*.tsbuildinfo
+
 *.orig
 
 node_modules
@@ -112,22 +146,70 @@ node_modules
 
 END
 
-make_file .tsconfig.json <<END
+make_file tsconfig.json <<END
 {
   "extends": "@tsconfig/recommended/tsconfig.json",
   "compilerOptions": {
+    "incremental": true,
     "outDir": "dist",
     "sourceMap": true,
     "declaration": true
-  }
+  },
+  "include": [
+    "src/**/*.ts"
+  ]
 }
 
+END
+
+make_file .prettierrc.json <<END
+{
+  "plugins": ["prettier-plugin-organize-imports"]
+}
 END
 
 make_file README.md <<END
 # ${PROJECT_NAME}
 
 END
+
+make_file 'src/index.ts' <<END
+
+export async function run(args: string[]) {
+  console.log("Hello world!")
+}
+
+END
+
+make_file 'src/index.test.ts' <<END
+import { afterEach, describe, it, jest } from "@jest/globals";
+import { run } from ".";
+
+describe("#run", () => {
+  afterEach(() => {
+    jest.resetAllMocks();
+  });
+
+  it("outputs to the console", async () => {
+    const consoleLogSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+    await run([]);
+    expect(consoleLogSpy).toHaveBeenCalledWith("Hello world!");
+  });
+});
+
+END
+
+make_file 'src/cli.ts' <<END
+import { run } from ".";
+
+run(process.argv.slice(2)).catch(err => {
+  process.exitCode = 1;
+  console.error(err);
+});
+
+END
+
+yarn format
 
 git add . && git commit -m "Initial commit"
 
