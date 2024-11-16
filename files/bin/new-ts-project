@@ -209,6 +209,10 @@ run(process.argv.slice(2)).catch(err => {
 
 END
 
+make_file 'src/types.ts' <<END
+// Add global types here
+END
+
 yarn format
 
 git add . && git commit -m "Initial commit"
