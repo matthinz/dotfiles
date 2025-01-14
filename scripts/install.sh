@@ -14,8 +14,8 @@ function install_file {
 
   if [ -f "$DEST_FILE" ]; then
 
-    EXISTING_MD5=$(md5 -q "$DEST_FILE")
-    NEW_MD5=$(md5 -q "$SOURCE_FILE")
+    EXISTING_MD5=$(md5sum "$DEST_FILE" |  awk '{ print $1 }')
+    NEW_MD5=$(md5sum "$SOURCE_FILE" | awk '{ print $1 }')
 
     if [ "$NEW_MD5" != "$EXISTING_MD5" ]; then
       echo "Back up existing file: $DEST_FILE"
@@ -49,6 +49,6 @@ do
   install_file "$f"
 done
 
-scripts/macos.sh
-scripts/brew.sh
+[ $(uname -o) == "Darwin" ] && scripts/macos.sh
+[ $(uname -o) == "Darwin" ] && scripts/brew.sh
 scripts/git.sh
