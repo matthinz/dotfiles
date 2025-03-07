@@ -25,7 +25,7 @@ autoload -Uz compinit && compinit
 
 export EDITOR=vim
 export PAGER=
-export PATH=${HOME}/bin:$PATH
+export PATH=${HOME}/bin:${HOME}/.local/bin:$PATH
 
 LOCAL_ZSHRC=~/.zshrc.$(uname -n)
 [ -f $LOCAL_ZSHRC ] && source $LOCAL_ZSHRC
