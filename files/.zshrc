@@ -36,11 +36,6 @@ if type brew &>/dev/null; then
   compinit
 fi
 
-# Yubikey
-if type ykman &>/dev/null && [ $(ykman list | wc -l) -gt 0 ]; then
-  export YKMAN_OATH_CREDENTIAL_NAME=$(ykman oath accounts list)
-fi
-
 # diff-so-fancy
 if type diff-so-fancy &>/dev/null; then
   git config --global core.pager "diff-so-fancy | less --tabs=4 -RFX"
