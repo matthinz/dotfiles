@@ -1,0 +1,44 @@
+{
+  "window.openFoldersInNewWindow": "on",
+  "workbench.editorAssociations": {
+    "*.ipynb": "jupyter-notebook"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "editor.rulers": [
+    {
+      "column": 80
+    },
+    {
+      "column": 100
+    },
+    {
+      "column": 120
+    }
+  ],
+  "window.zoomLevel": 1,
+  "redhat.telemetry.enabled": false,
+  "editor.accessibilitySupport": "off",
+  "workbench.colorTheme": "Solarized Dark",
+  "markdown.styles": [
+    "https://cdn.jsdelivr.net/gh/dhdhagar/vscode-md-preview-light/style.min.css"
+  ],
+  "editor.inlineSuggest.enabled": true,
+  "editor.stickyScroll.enabled": true,
+  "extensions.ignoreRecommendations": true,
+  "python.terminal.activateEnvironment": false,
+  "terminal.integrated.showExitAlert": false,
+  "terminal.integrated.fontSize": 15,
+  "editor.fontFamily": "Cascadia Code, Menlo, Monaco, 'Courier New', monospace",
+  "workbench.editor.limit.enabled": true,
+  "workbench.editor.limit.perEditorGroup": true,
+  "workbench.editor.limit.excludeDirty": true,
+  "workbench.editor.limit.value": 5
+}
