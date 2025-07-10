@@ -19,6 +19,7 @@ brew_install ghostty
 brew_install git
 brew_install git-lfs
 brew_install pandoc
+brew_install rclone
 brew_install rectangle
 brew_install starship
 brew_install the_silver_searcher
