@@ -27,7 +27,7 @@ export EDITOR=vim
 export PAGER=
 export PATH=${HOME}/bin:${HOME}/.local/bin:$PATH
 
-LOCAL_ZSHRC=~/.zshrc.$(uname -n)
+LOCAL_ZSHRC=~/.zshrc.local
 [ -f $LOCAL_ZSHRC ] && source $LOCAL_ZSHRC
 
 if type brew &>/dev/null; then
