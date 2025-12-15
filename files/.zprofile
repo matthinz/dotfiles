@@ -11,3 +11,7 @@ if type brew &> /dev/null; then
     . "${ASDF_PREFIX}/libexec/asdf.sh"
   fi
 fi
+
+if [ -f ~/.orbstack/shell/init.zsh ]; then
+  source ~/.orbstack/shell/init.zsh 2>/dev/null || :
+fi
