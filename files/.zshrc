@@ -43,7 +43,7 @@ if type diff-so-fancy &>/dev/null; then
 fi
 
 # Retain colors when piping to less
-export LESS="-r"
+export LESS="-R --quit-if-one-screen --no-init"
 
 # https://starship.rs/
 which starship > /dev/null 2>&1 && eval "$(starship init zsh)"
