@@ -35,6 +35,7 @@
   "extensions.ignoreRecommendations": true,
   "python.terminal.activateEnvironment": false,
   "terminal.integrated.showExitAlert": false,
+  "terminal.integrated.suggest.enabled": false,
   "terminal.integrated.fontSize": 15,
   "editor.fontFamily": "Cascadia Code, Menlo, Monaco, 'Courier New', monospace",
   "workbench.editor.limit.enabled": true,
