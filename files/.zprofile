@@ -15,3 +15,7 @@ fi
 if [ -f ~/.orbstack/shell/init.zsh ]; then
   source ~/.orbstack/shell/init.zsh 2>/dev/null || :
 fi
+
+if [ -d ~/Library/Android/sdk/platform-tools ]; then
+  export PATH=$PATH:~/Library/Android/sdk/platform-tools
+fi
