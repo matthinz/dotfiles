@@ -44,6 +44,9 @@ defaults write com.apple.print.PrintingPrefs "Quit When Finished" -bool true
 defaults write com.apple.desktopservices DSDontWriteNetworkStores -bool true
 defaults write com.apple.desktopservices DSDontWriteUSBStores -bool true
 
+# Don't automatically insert a period when you type two spaces
+defaults write NSGlobalDomain NSAutomaticPeriodSubstitutionEnabled -bool false
+
 # Don’t show recent applications in Dock
 defaults write com.apple.dock show-recents -bool false
 killall Dock
