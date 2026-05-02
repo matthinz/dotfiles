@@ -38,7 +38,7 @@ function install_file {
   fi
 }
 
-for f in $(find $FILES_DIR -type f | sed "s#^${FILES_DIR}/##")
+for f in $(find -L $FILES_DIR -type f | sed "s#^${FILES_DIR}/##")
 do
   if [[ "$f" == *.install.sh ]]; then
     # This is an installer. Ignore.
