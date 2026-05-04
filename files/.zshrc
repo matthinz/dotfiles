@@ -47,3 +47,6 @@ export LESS="-R --quit-if-one-screen --no-init"
 
 # https://starship.rs/
 which starship > /dev/null 2>&1 && eval "$(starship init zsh)"
+
+# Aliases
+alias dcr="docker compose run --quiet --rm"
