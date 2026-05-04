@@ -1,6 +1,9 @@
 # Ignore files prefixed with `MH-`
 MH-*
 
+# Same, but allow things to be sorted earlier
+0000_MH_*
+
 # Ignore remnants of git operations
 *.orig
 
