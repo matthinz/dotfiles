@@ -15,14 +15,15 @@ USAGE = <<~USAGE
   rebase. State is written to /tmp/.update-stacks-operation-<hash> so a failed
   run can be continued, aborted, or a successful run undone.
 
-  Stacks file format (keys are parent branches, values are ordered child lists):
+  Stacks file format (keys are parent branches, values are lists of children
+  that are each based directly on the key):
 
     main:
-      - feature/part-1
-      - feature/part-2     # rebased onto feature/part-1
+      - feature/part-1     # rebased onto main
+      - feature/part-2     # rebased onto main
     feature/part-2:
-      - feature/part-2a
-      - feature/part-2b    # rebased onto feature/part-2a
+      - feature/part-2a    # rebased onto feature/part-2
+      - feature/part-2b    # rebased onto feature/part-2
 
   Typical usage:
 
@@ -177,30 +178,18 @@ def save_stacks(stacks_file, stacks)
 end
 
 def prune_merged_children(parent, stacks, stacks_file)
-  # Linear-chain YAML arrays mean removing a merged child auto-links its
-  # successor up to `parent`, so we just loop until nothing more is merged.
-  loop do
-    merged = find_children(parent, stacks).select { |c| branch_merged_into?(c, parent) }
-    break if merged.empty?
-    merged.each do |c|
-      warn "#{c} is already merged into #{parent}; removing from #{stacks_file}"
-      remove_branch_from_stacks(stacks, c)
-    end
-    save_stacks(stacks_file, stacks)
+  merged = find_children(parent, stacks).select { |c| branch_merged_into?(c, parent) }
+  return if merged.empty?
+  merged.each do |c|
+    warn "#{c} is already merged into #{parent}; removing from #{stacks_file}"
+    remove_branch_from_stacks(stacks, c)
   end
+  save_stacks(stacks_file, stacks)
 end
 
 def find_children(parent, stacks)
-  children = []
-  if stacks[parent].is_a?(Array) && !stacks[parent].empty?
-    children << stacks[parent].first
-  end
-  stacks.each_value do |arr|
-    next unless arr.is_a?(Array)
-    i = arr.index(parent)
-    children << arr[i + 1] if i && arr[i + 1]
-  end
-  children.uniq
+  return [] unless stacks[parent].is_a?(Array)
+  stacks[parent].dup
 end
 
 def update_recursive(parent, stacks, opts, state, state_path, stacks_file)
