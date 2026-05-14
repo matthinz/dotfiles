@@ -34,6 +34,7 @@
   "editor.stickyScroll.enabled": true,
   "extensions.ignoreRecommendations": true,
   "python.terminal.activateEnvironment": false,
+  "terminal.integrated.gpuAcceleration": "off",
   "terminal.integrated.showExitAlert": false,
   "terminal.integrated.suggest.enabled": false,
   "terminal.integrated.fontSize": 15,
