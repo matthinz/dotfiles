@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+BRANCH_NAME="${1}"; shift
+
+git fetch origin "${BRANCH_NAME}:refs/remotes/origin/${BRANCH_NAME}"
