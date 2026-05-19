@@ -42,5 +42,10 @@
   "workbench.editor.limit.enabled": true,
   "workbench.editor.limit.perEditorGroup": true,
   "workbench.editor.limit.excludeDirty": true,
-  "workbench.editor.limit.value": 5
+  "workbench.editor.limit.value": 5,
+  "remote.SSH.connectTimeout": 1800,
+  "remote.SSH.reconnectionGraceTime": 28800,
+  "remote.SSH.serverShutdownTimeout": 28800,
+  "remote.SSH.maxReconnectionAttempts": null,
+  "claudeCode.preferredLocation": "panel"
 }
