@@ -7,21 +7,16 @@ require "digest"
 require "fileutils"
 
 USAGE = <<~USAGE
-  git-stacks — manage linear branch stacks (status, navigate, rebase).
+  git-stacks — manage linear branch stacks (status, navigate, rebase, push).
 
   Reads a YAML file (MH-stacks.yml or .stacks.yml) describing one or more named
-  linear stacks. With no arguments, prints a status grid for the stack
-  containing the current branch. With --update, walks forward from the current
-  branch rebasing each successor onto its predecessor. Update state is written
-  to /tmp/.git-stacks-operation-<hash> so a failed run can be continued,
-  aborted, or a successful run undone.
+  linear stacks. The first entry in each list is the base and is never rebased
+  or pushed; each subsequent entry is rebased onto its predecessor.
 
-  Stacks file format (top-level keys are arbitrary stack labels; values are
-  linear lists where the first item is the base and is NOT rebased, and each
-  subsequent item is rebased onto its predecessor):
+  Stacks file format:
 
     my-stack:
-      - main               # base — not rebased
+      - main               # base — not rebased, not pushed
       - feature/part-1     # rebased onto main
       - feature/part-2     # rebased onto feature/part-1
 
@@ -29,26 +24,32 @@ USAGE = <<~USAGE
       - main
       - feature/other
 
-  Typical usage:
+  Subcommands:
 
-    git stacks                             # show status for the current stack (default)
-    git stacks --status                    # same; explicit
-    git stacks --first                     # check out the first branch in the stack
-    git stacks --next                      # check out the next branch in the stack
-    git stacks --prev                      # check out the previous branch in the stack
-    git stacks --update                    # rebase each successor onto its predecessor
-    git stacks --update --push             # rebase + git push each branch
-    git stacks --update -f                 # rebase + push --force-with-lease
-    git stacks --update --cherry-pick      # reset child to parent, cherry-pick child's tip
-    git stacks --update --edit-conflicts   # stop on conflicts instead of -X ours
-    git stacks --update --dry-run          # print destructive commands instead of running them
-    git stacks --test                      # build a scratch repo and self-test the script
+    git stacks                          # alias for `status`
+    git stacks status                   # show parent/remote sync grid for the current stack
+    git stacks rebase [opts]            # rebase each successor onto its predecessor
+    git stacks cherry-pick [opts]       # reset child to parent, cherry-pick child's tip
+    git stacks push [opts]              # push every non-base branch in the current stack
+    git stacks first | last             # check out the first / last branch in the stack
+    git stacks next  | prev             # check out the next / previous branch in the stack
+    git stacks abort                    # abort an in-progress / failed rebase|cherry-pick
+    git stacks continue                 # resume a failed rebase|cherry-pick after fixing
+    git stacks undo                     # revert a previously-succeeded rebase|cherry-pick
+    git stacks test                     # build a scratch repo and self-test the script
 
-  Any of --push / -f / --cherry-pick / --edit-conflicts / --dry-run implies
-  --update, so `git stacks --push` is shorthand for `git stacks --update --push`.
+  rebase / cherry-pick options:
+    --dry-run            print destructive commands instead of running them
+    --edit-conflicts     stop on textual conflicts instead of -X ours
+
+  push options:
+    --dry-run            print the push commands instead of running them
+    -f, --force          push with --force-with-lease
+    --no-verify          pass --no-verify to every push
+    --some-verify        first push runs hooks; subsequent pushes use --no-verify
 
   Conflict handling:
-    By default rebases/cherry-picks run with `-X ours`, which auto-resolves
+    By default rebase / cherry-pick run with `-X ours`, which auto-resolves
     textual conflicts in favor of the parent (incoming) side — the usual
     desired behavior for stacked PRs where the child should track the parent.
     Pass --edit-conflicts to disable this and stop on every conflict.
@@ -58,11 +59,6 @@ USAGE = <<~USAGE
     an ancestor of its predecessor (i.e. that PR has been merged in). Merged
     branches are removed from the stacks YAML file in place; the next branch
     in the list then rebases onto the predecessor automatically.
-
-  Recovery:
-    git stacks --continue                  # resume after resolving conflicts
-    git stacks --abort                     # roll all branches back to pre-run shas
-    git stacks --undo                      # revert a previously-succeeded run
 USAGE
 
 STACKS_FILE_CANDIDATES = %w[MH-stacks.yml .stacks.yml].freeze
@@ -144,9 +140,6 @@ def abort_in_progress_git_op
     system("git merge --abort")
   end
 
-  # If anything left the index in a conflicted state (unmerged entries) or a dirty
-  # working tree, hard-reset to HEAD so subsequent checkouts can succeed. --abort
-  # is destructive by design; this is consistent with that.
   unmerged = `git ls-files --unmerged`.strip
   dirty = `git status --porcelain`.strip
   if !unmerged.empty? || !dirty.empty?
@@ -160,55 +153,6 @@ def find_state_files_with_status(*statuses)
     state = load_state(path) rescue nil
     state.is_a?(Hash) && statuses.include?(state["status"])
   end
-end
-
-def parse_options(argv)
-  opts = { update: false, push: false, force_push: false, cherry_pick: false, abort: false, undo: false, continue: false, edit_conflicts: false, dry_run: false, test: false, status: false, first: false, next: false, prev: false }
-  parser = OptionParser.new do |o|
-    o.banner = "Usage: git stacks [options]"
-    o.on("--update", "Rebase each successor onto its predecessor") { opts[:update] = true }
-    o.on("--push", "git push after each rebase (implies --update)") { opts[:push] = true }
-    o.on("-f", "--force", "git push --force-with-lease after each rebase (implies --update)") { opts[:force_push] = true }
-    o.on("--cherry-pick", "Use reset+cherry-pick instead of rebase (implies --update)") { opts[:cherry_pick] = true }
-    o.on("--edit-conflicts", "Stop on textual conflicts instead of auto-resolving in favor of the parent (implies --update)") { opts[:edit_conflicts] = true }
-    o.on("--dry-run", "Print destructive commands instead of running them (implies --update)") { opts[:dry_run] = true }
-    o.on("--abort", "Abort an in-progress/failed update, restoring branches") { opts[:abort] = true }
-    o.on("--continue", "Resume a failed update after resolving conflicts") { opts[:continue] = true }
-    o.on("--undo", "Undo a previously successful update") { opts[:undo] = true }
-    o.on("--test", "Build a scratch repo in cwd and self-test the script") { opts[:test] = true }
-    o.on("--status", "Show parent/remote sync status for each branch in the stack (default)") { opts[:status] = true }
-    o.on("--first", "--top", "--start", "Check out the first branch in the current stack") { opts[:first] = true }
-    o.on("--next", "Check out the next branch in the current stack") { opts[:next] = true }
-    o.on("--prev", "Check out the previous branch in the current stack") { opts[:prev] = true }
-    o.on("-h", "--help") { puts USAGE; puts; puts o; exit 0 }
-  end
-  parser.parse!(argv)
-
-  # --push / -f / --cherry-pick / --edit-conflicts / --dry-run all imply --update.
-  opts[:update] ||= opts[:push] || opts[:force_push] || opts[:cherry_pick] || opts[:edit_conflicts] || opts[:dry_run]
-
-  nav_count = [opts[:first], opts[:next], opts[:prev]].count(true)
-  die("--first, --next, and --prev are mutually exclusive") if nav_count > 1
-  non_nav_action = opts[:update] || opts[:abort] || opts[:continue] || opts[:undo] || opts[:status] || opts[:test]
-  die("--first/--next/--prev cannot be combined with other flags") if nav_count > 0 && non_nav_action
-
-  if opts[:test] && (opts[:update] || opts[:abort] || opts[:continue] || opts[:undo] || opts[:status])
-    die("--test cannot be combined with other flags")
-  end
-  if opts[:status] && (opts[:update] || opts[:abort] || opts[:continue] || opts[:undo])
-    die("--status cannot be combined with other flags")
-  end
-
-  modes = [opts[:abort], opts[:undo], opts[:continue]].count(true)
-  die("--abort, --continue, and --undo are mutually exclusive") if modes > 1
-  if (opts[:abort] || opts[:undo] || opts[:continue]) && (opts[:push] || opts[:force_push] || opts[:cherry_pick] || opts[:edit_conflicts])
-    die("--abort/--continue/--undo cannot be combined with --push/-f/--cherry-pick/--edit-conflicts (these are read from state)")
-  end
-  if opts[:dry_run] && (opts[:abort] || opts[:continue] || opts[:undo])
-    die("--dry-run cannot be combined with --abort/--continue/--undo")
-  end
-
-  opts
 end
 
 def branch_merged_into?(child, parent)
@@ -253,10 +197,6 @@ def find_stack_containing(branch, stacks)
   [name, list]
 end
 
-# Drop already-merged successors of the branch at stack_list[idx], one at a time.
-# A successor (stack_list[idx+1]) is "merged" when it is an ancestor of the
-# branch at idx. Each removal is persisted to the YAML file so a later failure
-# leaves the file consistent.
 def prune_merged_successors(stack_list, idx, stacks, stacks_file, dry_run: false)
   while idx + 1 < stack_list.length
     parent = stack_list[idx]
@@ -303,12 +243,6 @@ def update_linear(start_branch, stack_list, opts, state, state_path, stacks_file
       maybe_sh!("git rebase#{strategy_arg} #{parent}", dry_run: dry)
     end
 
-    if opts[:force_push]
-      maybe_sh!("git push --force-with-lease", dry_run: dry)
-    elsif opts[:push]
-      maybe_sh!("git push", dry_run: dry)
-    end
-
     unless dry
       state["branches"][child]["current"] = branch_sha(child)
       write_state(state_path, state)
@@ -340,7 +274,7 @@ def run_update(opts)
       if opts[:dry_run]
         warn "warning: a prior #{prior['status']} operation exists at #{state_path}; dry-run proceeding without modifying it"
       else
-        die("a prior #{prior['status']} operation exists at #{state_path}; run --abort or remove it")
+        die("a prior #{prior['status']} operation exists at #{state_path}; run abort or remove it")
       end
     end
   end
@@ -363,8 +297,6 @@ def run_update(opts)
     "status" => "in_progress",
     "original_branch" => original,
     "options" => {
-      "push" => opts[:push],
-      "force_push" => opts[:force_push],
       "cherry_pick" => opts[:cherry_pick],
       "edit_conflicts" => opts[:edit_conflicts],
     },
@@ -377,14 +309,65 @@ def run_update(opts)
     sh!("git checkout #{original}")
     state["status"] = "succeeded"
     write_state(state_path, state)
-    warn "done. state retained at #{state_path} — run --undo to revert."
+    warn "done. state retained at #{state_path} — run undo to revert."
   rescue => e
     state["status"] = "failed"
     write_state(state_path, state) rescue nil
     warn "error: #{e.message}"
-    warn "operation failed; state kept at #{state_path}. Run --abort to restore branches or resolve conflicts and run --continue."
+    warn "operation failed; state kept at #{state_path}. Run abort to restore branches or resolve conflicts and run continue."
     exit 1
   end
+end
+
+def push_cmd(force:, no_verify:)
+  parts = ["git push"]
+  parts << "--force-with-lease" if force
+  parts << "--no-verify" if no_verify
+  parts.join(" ")
+end
+
+def run_push(opts)
+  die("not in a git repo") unless in_git_repo?
+  die("--no-verify and --some-verify are mutually exclusive") if opts[:no_verify] && opts[:some_verify]
+
+  stacks_file = find_stacks_file
+  die("no stacks file found (looked for: #{STACKS_FILE_CANDIDATES.join(', ')})") unless stacks_file
+
+  stacks = YAML.load_file(stacks_file)
+  die("stacks file #{stacks_file} did not parse as a Hash") unless stacks.is_a?(Hash)
+
+  original = current_branch
+  found = find_stack_containing(original, stacks)
+  die("current branch '#{original}' does not appear in #{stacks_file}") unless found
+  _stack_name, stack_list = found
+
+  to_push = stack_list[1..] || []
+  if to_push.empty?
+    warn "stack has no non-base branches to push."
+    return
+  end
+
+  dry = opts[:dry_run]
+  pushed_count = 0
+  to_push.each do |branch|
+    unless branch_exists?(branch)
+      warn "skipping #{branch}: not present locally"
+      next
+    end
+    no_verify =
+      if opts[:no_verify]
+        true
+      elsif opts[:some_verify]
+        pushed_count > 0
+      else
+        false
+      end
+    sh!("git checkout #{branch}")
+    maybe_sh!(push_cmd(force: opts[:force], no_verify: no_verify), dry_run: dry)
+    pushed_count += 1
+  end
+
+  sh!("git checkout #{original}") if current_branch != original
 end
 
 def restore_branches(state, state_path, allow_when_status:, on_drift:)
@@ -453,8 +436,6 @@ def run_continue
 
   saved_opts = state["options"] || {}
   opts = {
-    push: saved_opts["push"] || false,
-    force_push: saved_opts["force_push"] || false,
     cherry_pick: saved_opts["cherry_pick"] || false,
     edit_conflicts: saved_opts["edit_conflicts"] || false,
   }
@@ -474,9 +455,8 @@ def run_continue
     sh!(cmd)
   end
 
-  # If working tree is still dirty after --continue (or if no op was running), bail.
   unless working_tree_clean?
-    die("working tree is not clean; resolve conflicts and stage/commit (or abort) before --continue")
+    die("working tree is not clean; resolve conflicts and stage/commit (or abort) before continue")
   end
 
   state["status"] = "in_progress"
@@ -485,14 +465,7 @@ def run_continue
   begin
     if in_flight
       head = current_branch
-      die("expected to be on '#{in_flight}' after --continue but on '#{head}'") unless head == in_flight
-
-      # Push if requested (the rebase/cherry-pick is now complete on the in-flight branch).
-      if opts[:force_push]
-        sh!("git push --force-with-lease")
-      elsif opts[:push]
-        sh!("git push")
-      end
+      die("expected to be on '#{in_flight}' after continue but on '#{head}'") unless head == in_flight
 
       state["branches"][in_flight]["current"] = branch_sha(in_flight)
       write_state(state_path, state)
@@ -506,12 +479,12 @@ def run_continue
     sh!("git checkout #{state['original_branch']}")
     state["status"] = "succeeded"
     write_state(state_path, state)
-    warn "done. state retained at #{state_path} — run --undo to revert."
+    warn "done. state retained at #{state_path} — run undo to revert."
   rescue => e
     state["status"] = "failed"
     write_state(state_path, state) rescue nil
     warn "error: #{e.message}"
-    warn "operation failed; state kept at #{state_path}. Run --abort to restore branches or resolve conflicts and run --continue."
+    warn "operation failed; state kept at #{state_path}. Run abort to restore branches or resolve conflicts and run continue."
     exit 1
   end
 end
@@ -555,6 +528,9 @@ def run_nav(mode)
     when :first
       die("already on first branch '#{branch}'") if i.zero?
       list.first
+    when :last
+      die("already on last branch '#{branch}'") if i == list.length - 1
+      list.last
     when :next
       die("already on last branch '#{branch}'") if i == list.length - 1
       list[i + 1]
@@ -609,11 +585,84 @@ def run_status
   end
 end
 
-### Self-test harness (--test)
+### Subcommand dispatch
 
-# Run a block inside a fresh scratch git repo and capture pass/fail.
-# Each scenario method takes the script path and returns nil on pass,
-# or raises with a message on failure.
+def parse_rebase_opts(argv, label:)
+  opts = { dry_run: false, edit_conflicts: false, cherry_pick: (label == "cherry-pick") }
+  OptionParser.new do |o|
+    o.banner = "Usage: git stacks #{label} [options]"
+    o.on("--dry-run", "Print destructive commands instead of running them") { opts[:dry_run] = true }
+    o.on("--edit-conflicts", "Stop on textual conflicts instead of -X ours") { opts[:edit_conflicts] = true }
+    o.on("-h", "--help") { puts o; exit 0 }
+  end.parse!(argv)
+  die("unexpected arguments: #{argv.join(' ')}") unless argv.empty?
+  opts
+end
+
+def parse_push_opts(argv)
+  opts = { dry_run: false, force: false, no_verify: false, some_verify: false }
+  OptionParser.new do |o|
+    o.banner = "Usage: git stacks push [options]"
+    o.on("--dry-run", "Print push commands instead of running them") { opts[:dry_run] = true }
+    o.on("-f", "--force", "Push with --force-with-lease") { opts[:force] = true }
+    o.on("--no-verify", "Pass --no-verify to every push") { opts[:no_verify] = true }
+    o.on("--some-verify", "Run hooks on the first push only; --no-verify for the rest") { opts[:some_verify] = true }
+    o.on("-h", "--help") { puts o; exit 0 }
+  end.parse!(argv)
+  die("unexpected arguments: #{argv.join(' ')}") unless argv.empty?
+  opts
+end
+
+def parse_bare_opts(argv, label:)
+  OptionParser.new do |o|
+    o.banner = "Usage: git stacks #{label}"
+    o.on("-h", "--help") { puts o; exit 0 }
+  end.parse!(argv)
+  die("unexpected arguments: #{argv.join(' ')}") unless argv.empty?
+end
+
+def dispatch(argv)
+  if %w[-h --help help].include?(argv.first)
+    puts USAGE
+    exit 0
+  end
+
+  cmd = argv.shift || "status"
+  case cmd
+  when "status"
+    parse_bare_opts(argv, label: "status")
+    run_status
+  when "rebase"
+    run_update(parse_rebase_opts(argv, label: "rebase"))
+  when "cherry-pick"
+    run_update(parse_rebase_opts(argv, label: "cherry-pick"))
+  when "push"
+    run_push(parse_push_opts(argv))
+  when "first", "last", "next", "prev"
+    parse_bare_opts(argv, label: cmd)
+    run_nav(cmd.to_sym)
+  when "abort"
+    parse_bare_opts(argv, label: "abort")
+    run_abort
+  when "continue"
+    parse_bare_opts(argv, label: "continue")
+    run_continue
+  when "undo"
+    parse_bare_opts(argv, label: "undo")
+    run_undo
+  when "test"
+    parse_bare_opts(argv, label: "test")
+    run_test_suite
+  else
+    warn "unknown subcommand: #{cmd}"
+    warn ""
+    warn USAGE
+    exit 1
+  end
+end
+
+### Self-test harness (test subcommand)
+
 class TestRunner
   attr_reader :results, :scratch_root, :script_path
 
@@ -684,6 +733,22 @@ def assert(cond, msg)
   raise msg unless cond
 end
 
+def setup_bare_remote_and_push_all(branches)
+  remote_path = File.expand_path("../remote.git", Dir.pwd)
+  FileUtils.rm_rf(remote_path)
+  sh_quiet("git init -q --bare #{remote_path}")
+  sh_quiet("git remote add origin #{remote_path}")
+  sh_quiet("git push -q -u origin main")
+  branches.each { |b| sh_quiet("git push -q -u origin #{b}") }
+  remote_path
+end
+
+def install_counting_pre_push_hook(counter_path)
+  hook = ".git/hooks/pre-push"
+  File.write(hook, "#!/bin/sh\necho run >> #{counter_path}\nexit 0\n")
+  File.chmod(0o755, hook)
+end
+
 def scenario_happy_path(script)
   make_branch("a", "main", "a.txt", "a\n")
   make_branch("b", "a",    "b.txt", "b\n")
@@ -693,7 +758,7 @@ def scenario_happy_path(script)
   sh_quiet("git add main2.txt && git commit -q -m mainv2")
   main_sha = rev("main")
   write_stacks("s:\n  - main\n  - a\n  - b\n  - c\n")
-  out, ok = sh_capture("ruby #{script} --update")
+  out, ok = sh_capture("ruby #{script} rebase")
   assert(ok, "script failed: #{out}")
   %w[a b c].each do |br|
     _, ancestor = sh_capture("git merge-base --is-ancestor #{main_sha} #{br}")
@@ -710,9 +775,9 @@ def scenario_undo(script)
   a_orig = rev("a")
   b_orig = rev("b")
   write_stacks("s:\n  - main\n  - a\n  - b\n")
-  _, ok = sh_capture("ruby #{script} --update")
+  _, ok = sh_capture("ruby #{script} rebase")
   assert(ok, "initial run failed")
-  out, ok = sh_capture("ruby #{script} --undo")
+  out, ok = sh_capture("ruby #{script} undo")
   assert(ok, "undo failed: #{out}")
   assert(rev("a") == a_orig, "a not restored (got #{rev('a')} want #{a_orig})")
   assert(rev("b") == b_orig, "b not restored (got #{rev('b')} want #{b_orig})")
@@ -724,7 +789,7 @@ def scenario_auto_prune(script)
   sh_quiet("git checkout -q main")
   sh_quiet("git merge -q --ff-only a")
   write_stacks("s:\n  - main\n  - a\n  - b\n")
-  out, ok = sh_capture("ruby #{script} --update")
+  out, ok = sh_capture("ruby #{script} rebase")
   assert(ok, "script failed: #{out}")
   stacks = YAML.load_file(".stacks.yml")
   assert(!stacks["s"].include?("a"), "a was not pruned from .stacks.yml: #{stacks.inspect}")
@@ -732,7 +797,6 @@ def scenario_auto_prune(script)
 end
 
 def scenario_abort_restores(script)
-  # Create a conflict on b vs main by editing the same file.
   File.write("shared.txt", "v1\n")
   sh_quiet("git add shared.txt && git commit -q -m shared")
   make_branch("a", "main", "a.txt", "a\n")
@@ -745,9 +809,9 @@ def scenario_abort_restores(script)
   a_orig = rev("a")
   b_orig = rev("b")
   write_stacks("s:\n  - main\n  - a\n  - b\n")
-  out, ok = sh_capture("ruby #{script} --edit-conflicts")
+  out, ok = sh_capture("ruby #{script} rebase --edit-conflicts")
   assert(!ok, "expected failure on conflict, got success")
-  out2, ok2 = sh_capture("ruby #{script} --abort")
+  out2, ok2 = sh_capture("ruby #{script} abort")
   assert(ok2, "abort failed: #{out2}")
   assert(rev("a") == a_orig, "a not restored after abort")
   assert(rev("b") == b_orig, "b not restored after abort")
@@ -759,7 +823,7 @@ def scenario_duplicate_branch(script)
   a_orig = rev("a")
   main_orig = rev("main")
   write_stacks("s1:\n  - main\n  - a\ns2:\n  - main\n  - a\n")
-  out, ok = sh_capture("ruby #{script} --update")
+  out, ok = sh_capture("ruby #{script} rebase")
   assert(!ok, "expected failure for duplicate branch")
   assert(out.include?("appears in multiple stacks"), "missing expected error message in: #{out}")
   assert(rev("a") == a_orig, "a should not have changed")
@@ -776,7 +840,7 @@ def scenario_dry_run(script)
   b_orig = rev("b")
   write_stacks("s:\n  - main\n  - a\n  - b\n")
   state_glob_before = Dir.glob("/tmp/.git-stacks-operation-*")
-  out, ok = sh_capture("ruby #{script} --dry-run")
+  out, ok = sh_capture("ruby #{script} rebase --dry-run")
   assert(ok, "dry-run failed: #{out}")
   assert(rev("a") == a_orig, "a should not have changed in dry-run")
   assert(rev("b") == b_orig, "b should not have changed in dry-run")
@@ -796,32 +860,48 @@ def scenario_nav(script)
   write_stacks("s:\n  - main\n  - a\n  - b\n  - c\n")
 
   sh_quiet("git checkout -q a")
-  out, ok = sh_capture("ruby #{script} --next")
-  assert(ok, "--next failed: #{out}")
+  out, ok = sh_capture("ruby #{script} next")
+  assert(ok, "next failed: #{out}")
   assert(current_head == "b", "expected b, got #{current_head}")
 
-  out, ok = sh_capture("ruby #{script} --next")
-  assert(ok, "--next to c failed: #{out}")
+  out, ok = sh_capture("ruby #{script} next")
+  assert(ok, "next to c failed: #{out}")
   assert(current_head == "c", "expected c, got #{current_head}")
 
-  out, ok = sh_capture("ruby #{script} --next")
-  assert(!ok, "expected --next at end to fail")
+  out, ok = sh_capture("ruby #{script} next")
+  assert(!ok, "expected next at end to fail")
   assert(out.include?("already on last"), "missing error message: #{out}")
 
-  out, ok = sh_capture("ruby #{script} --prev")
-  assert(ok && current_head == "b", "--prev to b failed: head=#{current_head}, out=#{out}")
-  sh_capture("ruby #{script} --prev")
-  sh_capture("ruby #{script} --prev")
+  out, ok = sh_capture("ruby #{script} prev")
+  assert(ok && current_head == "b", "prev to b failed: head=#{current_head}, out=#{out}")
+  sh_capture("ruby #{script} prev")
+  sh_capture("ruby #{script} prev")
   assert(current_head == "main", "expected main after 3 prevs, got #{current_head}")
-  out, ok = sh_capture("ruby #{script} --prev")
-  assert(!ok, "expected --prev at first to fail")
+  out, ok = sh_capture("ruby #{script} prev")
+  assert(!ok, "expected prev at first to fail")
   assert(out.include?("already on first"), "missing error message: #{out}")
 
   sh_quiet("git checkout -q c")
-  out, ok = sh_capture("ruby #{script} --first")
-  assert(ok && current_head == "main", "--first failed: head=#{current_head}, out=#{out}")
-  out, ok = sh_capture("ruby #{script} --first")
-  assert(!ok, "expected --first while on first to fail")
+  out, ok = sh_capture("ruby #{script} first")
+  assert(ok && current_head == "main", "first failed: head=#{current_head}, out=#{out}")
+  out, ok = sh_capture("ruby #{script} first")
+  assert(!ok, "expected first while on first to fail")
+end
+
+def scenario_last(script)
+  make_branch("a", "main", "a.txt", "a\n")
+  make_branch("b", "a",    "b.txt", "b\n")
+  make_branch("c", "b",    "c.txt", "c\n")
+  write_stacks("s:\n  - main\n  - a\n  - b\n  - c\n")
+
+  sh_quiet("git checkout -q a")
+  out, ok = sh_capture("ruby #{script} last")
+  assert(ok, "last failed: #{out}")
+  assert(current_head == "c", "expected c, got #{current_head}")
+
+  out, ok = sh_capture("ruby #{script} last")
+  assert(!ok, "expected last while on last to fail")
+  assert(out.include?("already on last"), "missing error message: #{out}")
 end
 
 def scenario_status(script)
@@ -833,17 +913,17 @@ def scenario_status(script)
   write_stacks("s:\n  - main\n  - a\n  - b\n")
   sh_quiet("git checkout -q a")
 
-  out, ok = sh_capture("ruby #{script} --status")
+  out, ok = sh_capture("ruby #{script} status")
   assert(ok, "status (pre-rebase) failed: #{out}")
   assert(out.include?("❌ behind"),    "expected 'behind' for a before rebase:\n#{out}")
   assert(out.include?("❌ no remote"), "expected 'no remote' (no origin in test repo):\n#{out}")
 
   sh_quiet("git checkout -q main")
-  _, ok = sh_capture("ruby #{script} --update")
+  _, ok = sh_capture("ruby #{script} rebase")
   assert(ok, "rebase run failed")
   sh_quiet("git checkout -q a")
 
-  out, ok = sh_capture("ruby #{script} --status")
+  out, ok = sh_capture("ruby #{script} status")
   assert(ok, "status (post-rebase) failed: #{out}")
   assert(!out.include?("❌ behind"), "should be no 'behind' rows post-rebase:\n#{out}")
   assert(out.scan(/✅ rebased/).length >= 2, "expected 2+ rebased rows:\n#{out}")
@@ -863,6 +943,93 @@ def scenario_default_is_status(script)
   assert(rev("b") == b_orig, "b changed under default invocation (should be read-only)")
 end
 
+def scenario_push_dry_run(script)
+  make_branch("a", "main", "a.txt", "a\n")
+  make_branch("b", "a",    "b.txt", "b\n")
+  sh_quiet("git checkout -q main")
+  setup_bare_remote_and_push_all(%w[a b])
+  write_stacks("s:\n  - main\n  - a\n  - b\n")
+  sh_quiet("git checkout -q a")
+  out, ok = sh_capture("ruby #{script} push --dry-run -f")
+  assert(ok, "push --dry-run failed: #{out}")
+  assert(out.scan(/\[dry-run\] git push --force-with-lease/).length == 2,
+         "expected 2 dry-run push lines:\n#{out}")
+end
+
+def scenario_push_force_updates_remote(script)
+  make_branch("a", "main", "a.txt", "a\n")
+  make_branch("b", "a",    "b.txt", "b\n")
+  sh_quiet("git checkout -q main")
+  setup_bare_remote_and_push_all(%w[a b])
+
+  sh_quiet("git checkout -q main")
+  File.write("main2.txt", "v2\n")
+  sh_quiet("git add main2.txt && git commit -q -m mainv2")
+  write_stacks("s:\n  - main\n  - a\n  - b\n")
+
+  _, ok = sh_capture("ruby #{script} rebase")
+  assert(ok, "rebase failed")
+
+  out, ok = sh_capture("ruby #{script} push -f")
+  assert(ok, "push -f failed: #{out}")
+  assert(rev("a") == rev("origin/a"), "origin/a not updated")
+  assert(rev("b") == rev("origin/b"), "origin/b not updated")
+end
+
+def scenario_push_no_verify(script)
+  make_branch("a", "main", "a.txt", "a\n")
+  make_branch("b", "a",    "b.txt", "b\n")
+  sh_quiet("git checkout -q main")
+  setup_bare_remote_and_push_all(%w[a b])
+
+  sh_quiet("git checkout -q main")
+  File.write("main2.txt", "v2\n")
+  sh_quiet("git add main2.txt && git commit -q -m mainv2")
+  write_stacks("s:\n  - main\n  - a\n  - b\n")
+  _, ok = sh_capture("ruby #{script} rebase")
+  assert(ok, "rebase failed")
+
+  counter = File.expand_path("hook-count.log", Dir.pwd)
+  File.delete(counter) if File.exist?(counter)
+  install_counting_pre_push_hook(counter)
+
+  out, ok = sh_capture("ruby #{script} push -f --no-verify")
+  assert(ok, "push --no-verify failed: #{out}")
+  assert(!File.exist?(counter), "pre-push hook ran despite --no-verify:\n#{File.exist?(counter) ? File.read(counter) : ''}")
+end
+
+def scenario_push_some_verify(script)
+  make_branch("a", "main", "a.txt", "a\n")
+  make_branch("b", "a",    "b.txt", "b\n")
+  make_branch("c", "b",    "c.txt", "c\n")
+  sh_quiet("git checkout -q main")
+  setup_bare_remote_and_push_all(%w[a b c])
+
+  sh_quiet("git checkout -q main")
+  File.write("main2.txt", "v2\n")
+  sh_quiet("git add main2.txt && git commit -q -m mainv2")
+  write_stacks("s:\n  - main\n  - a\n  - b\n  - c\n")
+  _, ok = sh_capture("ruby #{script} rebase")
+  assert(ok, "rebase failed")
+
+  counter = File.expand_path("hook-count.log", Dir.pwd)
+  File.delete(counter) if File.exist?(counter)
+  install_counting_pre_push_hook(counter)
+
+  out, ok = sh_capture("ruby #{script} push -f --some-verify")
+  assert(ok, "push --some-verify failed: #{out}")
+  lines = File.exist?(counter) ? File.read(counter).lines.count : 0
+  assert(lines == 1, "expected pre-push hook to run exactly once with --some-verify, got #{lines}\n#{out}")
+end
+
+def scenario_push_mutually_exclusive(script)
+  make_branch("a", "main", "a.txt", "a\n")
+  write_stacks("s:\n  - main\n  - a\n")
+  out, ok = sh_capture("ruby #{script} push --no-verify --some-verify")
+  assert(!ok, "expected push --no-verify --some-verify to fail")
+  assert(out.include?("mutually exclusive"), "missing error message:\n#{out}")
+end
+
 def run_test_suite
   script_path = File.expand_path(__FILE__)
   scratch = File.expand_path("./git-stacks-test-#{Process.pid}-#{Time.now.to_i}")
@@ -876,19 +1043,24 @@ def run_test_suite
   runner = TestRunner.new(script_path, scratch)
 
   scenarios = {
-    "happy_path"        => method(:scenario_happy_path),
-    "undo"              => method(:scenario_undo),
-    "auto_prune"        => method(:scenario_auto_prune),
-    "abort_restores"    => method(:scenario_abort_restores),
-    "duplicate_branch"  => method(:scenario_duplicate_branch),
-    "dry_run"           => method(:scenario_dry_run),
-    "status"            => method(:scenario_status),
-    "nav"               => method(:scenario_nav),
-    "default_is_status" => method(:scenario_default_is_status),
+    "happy_path"             => method(:scenario_happy_path),
+    "undo"                   => method(:scenario_undo),
+    "auto_prune"             => method(:scenario_auto_prune),
+    "abort_restores"         => method(:scenario_abort_restores),
+    "duplicate_branch"       => method(:scenario_duplicate_branch),
+    "dry_run"                => method(:scenario_dry_run),
+    "status"                 => method(:scenario_status),
+    "nav"                    => method(:scenario_nav),
+    "last"                   => method(:scenario_last),
+    "default_is_status"      => method(:scenario_default_is_status),
+    "push_dry_run"           => method(:scenario_push_dry_run),
+    "push_force"             => method(:scenario_push_force_updates_remote),
+    "push_no_verify"         => method(:scenario_push_no_verify),
+    "push_some_verify"       => method(:scenario_push_some_verify),
+    "push_mutually_exclusive"=> method(:scenario_push_mutually_exclusive),
   }
 
   scenarios.each do |name, m|
-    # Clean any lingering state files between scenarios so they don't interfere.
     Dir.glob("/tmp/.git-stacks-operation-*").each { |f| File.delete(f) }
     runner.run(name) { |script| m.call(script) }
   end
@@ -914,24 +1086,4 @@ def run_test_suite
   end
 end
 
-opts = parse_options(ARGV)
-
-if opts[:test]
-  run_test_suite
-elsif opts[:first]
-  run_nav(:first)
-elsif opts[:next]
-  run_nav(:next)
-elsif opts[:prev]
-  run_nav(:prev)
-elsif opts[:abort]
-  run_abort
-elsif opts[:continue]
-  run_continue
-elsif opts[:undo]
-  run_undo
-elsif opts[:update]
-  run_update(opts)
-else
-  run_status
-end
+dispatch(ARGV)
