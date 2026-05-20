@@ -43,7 +43,6 @@ USAGE = <<~USAGE
     it onto its parent in the stack). Pass --all to walk every successor.
 
     --dry-run            print destructive commands instead of running them
-    --edit-conflicts     stop on textual conflicts instead of -X ours
     --all                process every successor in the stack instead of just
                          the current branch (enables auto-prune)
 
@@ -52,12 +51,6 @@ USAGE = <<~USAGE
     -f, --force          push with --force-with-lease
     --no-verify          pass --no-verify to every push
     --some-verify        first push runs hooks; subsequent pushes use --no-verify
-
-  Conflict handling:
-    By default rebase / cherry-pick run with `-X ours`, which auto-resolves
-    textual conflicts in favor of the parent (incoming) side — the usual
-    desired behavior for stacked PRs where the child should track the parent.
-    Pass --edit-conflicts to disable this and stop on every conflict.
 
   Auto-pruning:
     Before rebasing each successor, the script checks whether it is already
@@ -265,13 +258,12 @@ def update_linear(start_branch, stack_list, opts, state, state_path, stacks_file
     end
 
     saved_sha = (opts[:cherry_pick] && !dry) ? branch_sha(child) : nil
-    strategy_arg = opts[:edit_conflicts] ? "" : " -X ours"
     sh!("git checkout #{child}")
     if opts[:cherry_pick]
       maybe_sh!("git reset --hard #{parent}", dry_run: dry)
-      maybe_sh!("git cherry-pick#{strategy_arg} #{saved_sha || '<saved-child-sha>'}", dry_run: dry)
+      maybe_sh!("git cherry-pick #{saved_sha || '<saved-child-sha>'}", dry_run: dry)
     else
-      maybe_sh!("git rebase#{strategy_arg} #{parent}", dry_run: dry)
+      maybe_sh!("git rebase #{parent}", dry_run: dry)
     end
 
     unless dry
@@ -338,7 +330,6 @@ def run_update(opts)
     "original_branch" => original,
     "options" => {
       "cherry_pick" => opts[:cherry_pick],
-      "edit_conflicts" => opts[:edit_conflicts],
     },
     "branches" => { original => { "original" => branch_sha(original) } },
   }
@@ -477,7 +468,6 @@ def run_continue
   saved_opts = state["options"] || {}
   opts = {
     cherry_pick: saved_opts["cherry_pick"] || false,
-    edit_conflicts: saved_opts["edit_conflicts"] || false,
   }
 
   stacks_file = find_stacks_file
@@ -607,11 +597,10 @@ end
 ### Subcommand dispatch
 
 def parse_rebase_opts(argv, label:)
-  opts = { dry_run: false, edit_conflicts: false, cherry_pick: (label == "cherry-pick"), all: false }
+  opts = { dry_run: false, cherry_pick: (label == "cherry-pick"), all: false }
   OptionParser.new do |o|
     o.banner = "Usage: git stacks #{label} [options]"
     o.on("--dry-run", "Print destructive commands instead of running them") { opts[:dry_run] = true }
-    o.on("--edit-conflicts", "Stop on textual conflicts instead of -X ours") { opts[:edit_conflicts] = true }
     o.on("--all", "Process every successor in the stack instead of just the current branch") { opts[:all] = true }
     o.on("-h", "--help") { puts o; exit 0 }
   end.parse!(argv)
@@ -829,7 +818,7 @@ def scenario_abort_restores(script)
   a_orig = rev("a")
   b_orig = rev("b")
   write_stacks("s:\n  - main\n  - a\n  - b\n")
-  out, ok = sh_capture("ruby #{script} rebase --all --edit-conflicts")
+  out, ok = sh_capture("ruby #{script} rebase --all")
   assert(!ok, "expected failure on conflict, got success")
   out2, ok2 = sh_capture("ruby #{script} abort")
   assert(ok2, "abort failed: #{out2}")
