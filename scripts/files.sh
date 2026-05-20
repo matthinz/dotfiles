@@ -11,8 +11,11 @@ function install_file {
   FILE="$1"; shift
   SOURCE_FILE="${FILES_DIR}/${FILE}"
   DEST_FILE="${HOME}/${FILE}"
+  ABS_SOURCE="$(cd "$(dirname "$SOURCE_FILE")" && pwd)/$(basename "$SOURCE_FILE")"
 
-  if [ -f "$DEST_FILE" ]; then
+  if [ -L "$DEST_FILE" ]; then
+    rm "$DEST_FILE"
+  elif [ -f "$DEST_FILE" ]; then
 
     EXISTING_MD5=$(md5sum "$DEST_FILE" |  awk '{ print $1 }')
     NEW_MD5=$(md5sum "$SOURCE_FILE" | awk '{ print $1 }')
@@ -28,8 +31,8 @@ function install_file {
 
   mkdir -p "$(dirname "$DEST_FILE")"
 
-  echo "$SOURCE_FILE -> $DEST_FILE"
-  ln "$SOURCE_FILE" "$DEST_FILE"
+  echo "$ABS_SOURCE -> $DEST_FILE"
+  ln -s "$ABS_SOURCE" "$DEST_FILE"
 
   INSTALL_SCRIPT="${SOURCE_FILE}${INSTALLER_SUFFIX}"
   if test -f "$INSTALL_SCRIPT"; then
