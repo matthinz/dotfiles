@@ -39,12 +39,13 @@ USAGE = <<~USAGE
     git stacks test                     # build a scratch repo and self-test the script
 
   rebase / cherry-pick options:
+    By default these only operate on the current branch (rebasing/cherry-picking
+    it onto its parent in the stack). Pass --all to walk every successor.
+
     --dry-run            print destructive commands instead of running them
     --edit-conflicts     stop on textual conflicts instead of -X ours
-
-  rebase-only options:
-    --current            rebase only the current branch onto its parent; leave
-                         successors untouched (skips auto-prune)
+    --all                process every successor in the stack instead of just
+                         the current branch (enables auto-prune)
 
   push options:
     --dry-run            print the push commands instead of running them
@@ -251,7 +252,7 @@ def update_linear(start_branch, stack_list, opts, state, state_path, stacks_file
   dry = opts[:dry_run]
 
   while i + 1 < stack_list.length
-    prune_merged_successors(stack_list, i, stacks, stacks_file, dry_run: dry) unless opts[:current_only]
+    prune_merged_successors(stack_list, i, stacks, stacks_file, dry_run: dry) if opts[:all]
     break if i + 1 >= stack_list.length
 
     parent = stack_list[i]
@@ -279,7 +280,7 @@ def update_linear(start_branch, stack_list, opts, state, state_path, stacks_file
     end
 
     i += 1
-    break if opts[:current_only]
+    break unless opts[:all]
   end
 end
 
@@ -298,12 +299,12 @@ def run_update(opts)
   die("current branch '#{original}' does not appear in #{stacks_file}") unless found
   _stack_name, stack_list = found
 
-  if opts[:current_only]
-    orig_idx = stack_list.index(original)
-    die("--current: '#{original}' is the stack base; nothing to rebase onto") if orig_idx.zero?
-    start_branch = stack_list[orig_idx - 1]
-  else
+  if opts[:all]
     start_branch = original
+  else
+    orig_idx = stack_list.index(original)
+    die("'#{original}' is the stack base; nothing to rebase onto (pass --all to rebase successors)") if orig_idx.zero?
+    start_branch = stack_list[orig_idx - 1]
   end
 
   state_path = state_file_for(original)
@@ -606,14 +607,12 @@ end
 ### Subcommand dispatch
 
 def parse_rebase_opts(argv, label:)
-  opts = { dry_run: false, edit_conflicts: false, cherry_pick: (label == "cherry-pick"), current_only: false }
+  opts = { dry_run: false, edit_conflicts: false, cherry_pick: (label == "cherry-pick"), all: false }
   OptionParser.new do |o|
     o.banner = "Usage: git stacks #{label} [options]"
     o.on("--dry-run", "Print destructive commands instead of running them") { opts[:dry_run] = true }
     o.on("--edit-conflicts", "Stop on textual conflicts instead of -X ours") { opts[:edit_conflicts] = true }
-    if label == "rebase"
-      o.on("--current", "Only rebase the current branch onto its parent") { opts[:current_only] = true }
-    end
+    o.on("--all", "Process every successor in the stack instead of just the current branch") { opts[:all] = true }
     o.on("-h", "--help") { puts o; exit 0 }
   end.parse!(argv)
   die("unexpected arguments: #{argv.join(' ')}") unless argv.empty?
@@ -779,7 +778,7 @@ def scenario_happy_path(script)
   sh_quiet("git add main2.txt && git commit -q -m mainv2")
   main_sha = rev("main")
   write_stacks("s:\n  - main\n  - a\n  - b\n  - c\n")
-  out, ok = sh_capture("ruby #{script} rebase")
+  out, ok = sh_capture("ruby #{script} rebase --all")
   assert(ok, "script failed: #{out}")
   %w[a b c].each do |br|
     _, ancestor = sh_capture("git merge-base --is-ancestor #{main_sha} #{br}")
@@ -796,7 +795,7 @@ def scenario_undo(script)
   a_orig = rev("a")
   b_orig = rev("b")
   write_stacks("s:\n  - main\n  - a\n  - b\n")
-  _, ok = sh_capture("ruby #{script} rebase")
+  _, ok = sh_capture("ruby #{script} rebase --all")
   assert(ok, "initial run failed")
   out, ok = sh_capture("ruby #{script} undo")
   assert(ok, "undo failed: #{out}")
@@ -810,7 +809,7 @@ def scenario_auto_prune(script)
   sh_quiet("git checkout -q main")
   sh_quiet("git merge -q --ff-only a")
   write_stacks("s:\n  - main\n  - a\n  - b\n")
-  out, ok = sh_capture("ruby #{script} rebase")
+  out, ok = sh_capture("ruby #{script} rebase --all")
   assert(ok, "script failed: #{out}")
   stacks = YAML.load_file(".stacks.yml")
   assert(!stacks["s"].include?("a"), "a was not pruned from .stacks.yml: #{stacks.inspect}")
@@ -830,7 +829,7 @@ def scenario_abort_restores(script)
   a_orig = rev("a")
   b_orig = rev("b")
   write_stacks("s:\n  - main\n  - a\n  - b\n")
-  out, ok = sh_capture("ruby #{script} rebase --edit-conflicts")
+  out, ok = sh_capture("ruby #{script} rebase --all --edit-conflicts")
   assert(!ok, "expected failure on conflict, got success")
   out2, ok2 = sh_capture("ruby #{script} abort")
   assert(ok2, "abort failed: #{out2}")
@@ -844,7 +843,7 @@ def scenario_duplicate_branch(script)
   a_orig = rev("a")
   main_orig = rev("main")
   write_stacks("s1:\n  - main\n  - a\ns2:\n  - main\n  - a\n")
-  out, ok = sh_capture("ruby #{script} rebase")
+  out, ok = sh_capture("ruby #{script} rebase --all")
   assert(!ok, "expected failure for duplicate branch")
   assert(out.include?("appears in multiple stacks"), "missing expected error message in: #{out}")
   assert(rev("a") == a_orig, "a should not have changed")
@@ -861,7 +860,7 @@ def scenario_dry_run(script)
   b_orig = rev("b")
   write_stacks("s:\n  - main\n  - a\n  - b\n")
   state_glob_before = Dir.glob("/tmp/.git-stacks-operation-*")
-  out, ok = sh_capture("ruby #{script} rebase --dry-run")
+  out, ok = sh_capture("ruby #{script} rebase --all --dry-run")
   assert(ok, "dry-run failed: #{out}")
   assert(rev("a") == a_orig, "a should not have changed in dry-run")
   assert(rev("b") == b_orig, "b should not have changed in dry-run")
@@ -940,7 +939,7 @@ def scenario_status(script)
   assert(out.include?("❌ no remote"), "expected 'no remote' (no origin in test repo):\n#{out}")
 
   sh_quiet("git checkout -q main")
-  _, ok = sh_capture("ruby #{script} rebase")
+  _, ok = sh_capture("ruby #{script} rebase --all")
   assert(ok, "rebase run failed")
   sh_quiet("git checkout -q a")
 
@@ -988,7 +987,7 @@ def scenario_push_force_updates_remote(script)
   sh_quiet("git add main2.txt && git commit -q -m mainv2")
   write_stacks("s:\n  - main\n  - a\n  - b\n")
 
-  _, ok = sh_capture("ruby #{script} rebase")
+  _, ok = sh_capture("ruby #{script} rebase --all")
   assert(ok, "rebase failed")
 
   out, ok = sh_capture("ruby #{script} push -f")
@@ -1007,7 +1006,7 @@ def scenario_push_no_verify(script)
   File.write("main2.txt", "v2\n")
   sh_quiet("git add main2.txt && git commit -q -m mainv2")
   write_stacks("s:\n  - main\n  - a\n  - b\n")
-  _, ok = sh_capture("ruby #{script} rebase")
+  _, ok = sh_capture("ruby #{script} rebase --all")
   assert(ok, "rebase failed")
 
   counter = File.expand_path("hook-count.log", Dir.pwd)
@@ -1030,7 +1029,7 @@ def scenario_push_some_verify(script)
   File.write("main2.txt", "v2\n")
   sh_quiet("git add main2.txt && git commit -q -m mainv2")
   write_stacks("s:\n  - main\n  - a\n  - b\n  - c\n")
-  _, ok = sh_capture("ruby #{script} rebase")
+  _, ok = sh_capture("ruby #{script} rebase --all")
   assert(ok, "rebase failed")
 
   counter = File.expand_path("hook-count.log", Dir.pwd)
@@ -1043,7 +1042,7 @@ def scenario_push_some_verify(script)
   assert(lines == 1, "expected pre-push hook to run exactly once with --some-verify, got #{lines}\n#{out}")
 end
 
-def scenario_rebase_current(script)
+def scenario_rebase_default_is_current_branch(script)
   make_branch("a", "main", "a.txt", "a\n")
   make_branch("b", "a",    "b.txt", "b\n")
   make_branch("c", "b",    "c.txt", "c\n")
@@ -1055,16 +1054,16 @@ def scenario_rebase_current(script)
   write_stacks("s:\n  - main\n  - a\n  - b\n  - c\n")
 
   sh_quiet("git checkout -q b")
-  out, ok = sh_capture("ruby #{script} rebase --current")
-  assert(ok, "rebase --current failed: #{out}")
+  out, ok = sh_capture("ruby #{script} rebase")
+  assert(ok, "bare rebase failed: #{out}")
 
   _, b_has_a = sh_capture("git merge-base --is-ancestor #{a_sha} b")
   assert(b_has_a, "b should contain new a commit:\n#{out}")
   assert(rev("c") == c_orig, "c should be untouched (was #{c_orig}, now #{rev('c')})")
 
   sh_quiet("git checkout -q main")
-  out, ok = sh_capture("ruby #{script} rebase --current")
-  assert(!ok, "expected rebase --current on base to fail")
+  out, ok = sh_capture("ruby #{script} rebase")
+  assert(!ok, "expected bare rebase on base to fail")
   assert(out.include?("stack base"), "missing expected error in:\n#{out}")
 end
 
@@ -1090,7 +1089,7 @@ def run_test_suite
 
   scenarios = {
     "happy_path"             => method(:scenario_happy_path),
-    "rebase_current"         => method(:scenario_rebase_current),
+    "rebase_default_is_current_branch" => method(:scenario_rebase_default_is_current_branch),
     "undo"                   => method(:scenario_undo),
     "auto_prune"             => method(:scenario_auto_prune),
     "abort_restores"         => method(:scenario_abort_restores),
