@@ -42,6 +42,10 @@ USAGE = <<~USAGE
     --dry-run            print destructive commands instead of running them
     --edit-conflicts     stop on textual conflicts instead of -X ours
 
+  rebase-only options:
+    --current            rebase only the current branch onto its parent; leave
+                         successors untouched (skips auto-prune)
+
   push options:
     --dry-run            print the push commands instead of running them
     -f, --force          push with --force-with-lease
@@ -63,6 +67,32 @@ USAGE
 
 STACKS_FILE_CANDIDATES = %w[MH-stacks.yml .stacks.yml].freeze
 STATE_FILE_PREFIX = "/tmp/.git-stacks-operation-"
+
+REMOTE_LABELS = {
+  pushed:    "⬆️  pushed",
+  unpushed:  "📤 unpushed",
+  behind:    "⬇️  behind",
+  diverged:  "⚠️  diverged",
+  no_remote: "❌ no remote",
+  missing:   "❓ missing",
+}.freeze
+
+def print_branch_status_line(branch, list, idx, width)
+  name_col = branch.ljust(width)
+  unless branch_exists?(branch)
+    puts "  #{name_col}  ❓ missing locally"
+    return
+  end
+  parent_col =
+    if idx.zero?
+      " " * 12
+    else
+      parent = list[idx - 1]
+      branch_exists?(parent) && branch_merged_into?(parent, branch) ? "✅ rebased " : "❌ behind  "
+    end
+  remote_col = REMOTE_LABELS[remote_status(branch)]
+  puts "  #{name_col}  #{parent_col}  #{remote_col}"
+end
 
 def die(msg)
   warn "error: #{msg}"
@@ -221,7 +251,7 @@ def update_linear(start_branch, stack_list, opts, state, state_path, stacks_file
   dry = opts[:dry_run]
 
   while i + 1 < stack_list.length
-    prune_merged_successors(stack_list, i, stacks, stacks_file, dry_run: dry)
+    prune_merged_successors(stack_list, i, stacks, stacks_file, dry_run: dry) unless opts[:current_only]
     break if i + 1 >= stack_list.length
 
     parent = stack_list[i]
@@ -249,6 +279,7 @@ def update_linear(start_branch, stack_list, opts, state, state_path, stacks_file
     end
 
     i += 1
+    break if opts[:current_only]
   end
 end
 
@@ -267,6 +298,14 @@ def run_update(opts)
   die("current branch '#{original}' does not appear in #{stacks_file}") unless found
   _stack_name, stack_list = found
 
+  if opts[:current_only]
+    orig_idx = stack_list.index(original)
+    die("--current: '#{original}' is the stack base; nothing to rebase onto") if orig_idx.zero?
+    start_branch = stack_list[orig_idx - 1]
+  else
+    start_branch = original
+  end
+
   state_path = state_file_for(original)
   if File.exist?(state_path)
     prior = load_state(state_path) rescue nil
@@ -283,7 +322,7 @@ def run_update(opts)
     warn "dry-run: no changes will be made; no state file will be written"
     state = { "branches" => {} }
     begin
-      update_linear(original, stack_list, opts, state, state_path, stacks_file, stacks)
+      update_linear(start_branch, stack_list, opts, state, state_path, stacks_file, stacks)
       sh!("git checkout #{original}")
       warn "dry-run complete."
     rescue => e
@@ -305,7 +344,7 @@ def run_update(opts)
   write_state(state_path, state)
 
   begin
-    update_linear(original, stack_list, opts, state, state_path, stacks_file, stacks)
+    update_linear(start_branch, stack_list, opts, state, state_path, stacks_file, stacks)
     sh!("git checkout #{original}")
     state["status"] = "succeeded"
     write_state(state_path, state)
@@ -540,6 +579,7 @@ def run_nav(mode)
     end
 
   sh!("git checkout #{target}")
+  print_branch_status_line(target, list, list.index(target), target.length)
 end
 
 def run_status
@@ -556,43 +596,24 @@ def run_status
   die("current branch '#{branch}' does not appear in #{stacks_file}") unless found
   name, list = found
 
-  remote_labels = {
-    pushed:    "⬆️  pushed",
-    unpushed:  "📤 unpushed",
-    behind:    "⬇️  behind",
-    diverged:  "⚠️  diverged",
-    no_remote: "❌ no remote",
-    missing:   "❓ missing",
-  }
-
   width = list.map(&:length).max
   puts "stack: #{name}"
   list.each_with_index do |br, i|
-    name_col = br.ljust(width)
-    unless branch_exists?(br)
-      puts "  #{name_col}  ❓ missing locally"
-      next
-    end
-    parent_col =
-      if i.zero?
-        " " * 12
-      else
-        parent = list[i - 1]
-        branch_exists?(parent) && branch_merged_into?(parent, br) ? "✅ rebased " : "❌ behind  "
-      end
-    remote_col = remote_labels[remote_status(br)]
-    puts "  #{name_col}  #{parent_col}  #{remote_col}"
+    print_branch_status_line(br, list, i, width)
   end
 end
 
 ### Subcommand dispatch
 
 def parse_rebase_opts(argv, label:)
-  opts = { dry_run: false, edit_conflicts: false, cherry_pick: (label == "cherry-pick") }
+  opts = { dry_run: false, edit_conflicts: false, cherry_pick: (label == "cherry-pick"), current_only: false }
   OptionParser.new do |o|
     o.banner = "Usage: git stacks #{label} [options]"
     o.on("--dry-run", "Print destructive commands instead of running them") { opts[:dry_run] = true }
     o.on("--edit-conflicts", "Stop on textual conflicts instead of -X ours") { opts[:edit_conflicts] = true }
+    if label == "rebase"
+      o.on("--current", "Only rebase the current branch onto its parent") { opts[:current_only] = true }
+    end
     o.on("-h", "--help") { puts o; exit 0 }
   end.parse!(argv)
   die("unexpected arguments: #{argv.join(' ')}") unless argv.empty?
@@ -1022,6 +1043,31 @@ def scenario_push_some_verify(script)
   assert(lines == 1, "expected pre-push hook to run exactly once with --some-verify, got #{lines}\n#{out}")
 end
 
+def scenario_rebase_current(script)
+  make_branch("a", "main", "a.txt", "a\n")
+  make_branch("b", "a",    "b.txt", "b\n")
+  make_branch("c", "b",    "c.txt", "c\n")
+  sh_quiet("git checkout -q a")
+  File.write("a2.txt", "a2\n")
+  sh_quiet("git add a2.txt && git commit -q -m a2")
+  a_sha = rev("a")
+  c_orig = rev("c")
+  write_stacks("s:\n  - main\n  - a\n  - b\n  - c\n")
+
+  sh_quiet("git checkout -q b")
+  out, ok = sh_capture("ruby #{script} rebase --current")
+  assert(ok, "rebase --current failed: #{out}")
+
+  _, b_has_a = sh_capture("git merge-base --is-ancestor #{a_sha} b")
+  assert(b_has_a, "b should contain new a commit:\n#{out}")
+  assert(rev("c") == c_orig, "c should be untouched (was #{c_orig}, now #{rev('c')})")
+
+  sh_quiet("git checkout -q main")
+  out, ok = sh_capture("ruby #{script} rebase --current")
+  assert(!ok, "expected rebase --current on base to fail")
+  assert(out.include?("stack base"), "missing expected error in:\n#{out}")
+end
+
 def scenario_push_mutually_exclusive(script)
   make_branch("a", "main", "a.txt", "a\n")
   write_stacks("s:\n  - main\n  - a\n")
@@ -1044,6 +1090,7 @@ def run_test_suite
 
   scenarios = {
     "happy_path"             => method(:scenario_happy_path),
+    "rebase_current"         => method(:scenario_rebase_current),
     "undo"                   => method(:scenario_undo),
     "auto_prune"             => method(:scenario_auto_prune),
     "abort_restores"         => method(:scenario_abort_restores),
