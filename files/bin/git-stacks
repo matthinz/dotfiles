@@ -3,7 +3,6 @@
 
 require "optparse"
 require "yaml"
-require "digest"
 require "fileutils"
 
 USAGE = <<~USAGE
@@ -33,9 +32,6 @@ USAGE = <<~USAGE
     git stacks push [opts]              # push every non-base branch in the current stack
     git stacks first | last             # check out the first / last branch in the stack
     git stacks next  | prev             # check out the next / previous branch in the stack
-    git stacks abort                    # abort an in-progress / failed rebase|cherry-pick
-    git stacks continue                 # resume a failed rebase|cherry-pick after fixing
-    git stacks undo                     # revert a previously-succeeded rebase|cherry-pick
     git stacks test                     # build a scratch repo and self-test the script
 
   rebase / cherry-pick options:
@@ -44,23 +40,16 @@ USAGE = <<~USAGE
 
     --dry-run            print destructive commands instead of running them
     --all                process every successor in the stack instead of just
-                         the current branch (enables auto-prune)
+                         the current branch
 
   push options:
     --dry-run            print the push commands instead of running them
     -f, --force          push with --force-with-lease
     --no-verify          pass --no-verify to every push
     --some-verify        first push runs hooks; subsequent pushes use --no-verify
-
-  Auto-pruning:
-    Before rebasing each successor, the script checks whether it is already
-    an ancestor of its predecessor (i.e. that PR has been merged in). Merged
-    branches are removed from the stacks YAML file in place; the next branch
-    in the list then rebases onto the predecessor automatically.
 USAGE
 
 STACKS_FILE_CANDIDATES = %w[MH-stacks.yml .stacks.yml].freeze
-STATE_FILE_PREFIX = "/tmp/.git-stacks-operation-"
 
 REMOTE_LABELS = {
   pushed:    "⬆️  pushed",
@@ -128,67 +117,13 @@ def branch_sha(branch)
   capture("git rev-parse #{branch}")
 end
 
-def state_file_for(branch)
-  "#{STATE_FILE_PREFIX}#{Digest::MD5.hexdigest(branch)}"
-end
-
-def load_state(path)
-  YAML.load_file(path)
-end
-
-def write_state(path, state)
-  File.write(path, YAML.dump(state))
-end
-
 def find_stacks_file
   STACKS_FILE_CANDIDATES.each { |name| return name if File.exist?(name) }
   nil
 end
 
-def abort_in_progress_git_op
-  git_dir = capture("git rev-parse --git-dir") rescue nil
-  return unless git_dir
-
-  if File.exist?(File.join(git_dir, "CHERRY_PICK_HEAD"))
-    warn "cherry-pick in progress; aborting it first"
-    system("git cherry-pick --abort")
-  end
-
-  if File.directory?(File.join(git_dir, "rebase-merge")) || File.directory?(File.join(git_dir, "rebase-apply"))
-    warn "rebase in progress; aborting it first"
-    system("git rebase --abort")
-  end
-
-  if File.exist?(File.join(git_dir, "MERGE_HEAD"))
-    warn "merge in progress; aborting it first"
-    system("git merge --abort")
-  end
-
-  unmerged = `git ls-files --unmerged`.strip
-  dirty = `git status --porcelain`.strip
-  if !unmerged.empty? || !dirty.empty?
-    warn "working tree/index is dirty; running git reset --hard HEAD to clear"
-    sh!("git reset --hard HEAD")
-  end
-end
-
-def find_state_files_with_status(*statuses)
-  Dir.glob("#{STATE_FILE_PREFIX}*").select do |path|
-    state = load_state(path) rescue nil
-    state.is_a?(Hash) && statuses.include?(state["status"])
-  end
-end
-
 def branch_merged_into?(child, parent)
   system("git merge-base --is-ancestor #{child} #{parent} > /dev/null 2>&1")
-end
-
-def remove_branch_from_stacks(stacks, branch)
-  stacks.each_value { |list| list.delete(branch) if list.is_a?(Array) }
-end
-
-def save_stacks(stacks_file, stacks)
-  File.write(stacks_file, YAML.dump(stacks))
 end
 
 def branch_exists?(branch)
@@ -221,41 +156,14 @@ def find_stack_containing(branch, stacks)
   [name, list]
 end
 
-def prune_merged_successors(stack_list, idx, stacks, stacks_file, dry_run: false)
-  while idx + 1 < stack_list.length
-    parent = stack_list[idx]
-    succ = stack_list[idx + 1]
-    break unless branch_merged_into?(succ, parent)
-    if dry_run
-      warn "[dry-run] #{succ} is already merged into #{parent}; would remove from #{stacks_file}"
-    else
-      warn "#{succ} is already merged into #{parent}; removing from #{stacks_file}"
-    end
-    stack_list.delete_at(idx + 1)
-    unless dry_run
-      remove_branch_from_stacks(stacks, succ)
-      save_stacks(stacks_file, stacks)
-    end
-  end
-end
-
-def update_linear(start_branch, stack_list, opts, state, state_path, stacks_file, stacks)
+def update_linear(start_branch, stack_list, opts)
   i = stack_list.index(start_branch)
   raise "start branch #{start_branch} not in stack list" unless i
   dry = opts[:dry_run]
 
   while i + 1 < stack_list.length
-    prune_merged_successors(stack_list, i, stacks, stacks_file, dry_run: dry) if opts[:all]
-    break if i + 1 >= stack_list.length
-
     parent = stack_list[i]
     child = stack_list[i + 1]
-
-    unless dry
-      state["branches"][child] ||= {}
-      state["branches"][child]["original"] ||= branch_sha(child)
-      write_state(state_path, state)
-    end
 
     saved_sha = (opts[:cherry_pick] && !dry) ? branch_sha(child) : nil
     sh!("git checkout #{child}")
@@ -264,11 +172,6 @@ def update_linear(start_branch, stack_list, opts, state, state_path, stacks_file
       maybe_sh!("git cherry-pick #{saved_sha || '<saved-child-sha>'}", dry_run: dry)
     else
       maybe_sh!("git rebase #{parent}", dry_run: dry)
-    end
-
-    unless dry
-      state["branches"][child]["current"] = branch_sha(child)
-      write_state(state_path, state)
     end
 
     i += 1
@@ -299,53 +202,12 @@ def run_update(opts)
     start_branch = stack_list[orig_idx - 1]
   end
 
-  state_path = state_file_for(original)
-  if File.exist?(state_path)
-    prior = load_state(state_path) rescue nil
-    if prior.is_a?(Hash) && %w[in_progress failed].include?(prior["status"])
-      if opts[:dry_run]
-        warn "warning: a prior #{prior['status']} operation exists at #{state_path}; dry-run proceeding without modifying it"
-      else
-        die("a prior #{prior['status']} operation exists at #{state_path}; run abort or remove it")
-      end
-    end
-  end
-
-  if opts[:dry_run]
-    warn "dry-run: no changes will be made; no state file will be written"
-    state = { "branches" => {} }
-    begin
-      update_linear(start_branch, stack_list, opts, state, state_path, stacks_file, stacks)
-      sh!("git checkout #{original}")
-      warn "dry-run complete."
-    rescue => e
-      warn "error: #{e.message}"
-      exit 1
-    end
-    return
-  end
-
-  state = {
-    "status" => "in_progress",
-    "original_branch" => original,
-    "options" => {
-      "cherry_pick" => opts[:cherry_pick],
-    },
-    "branches" => { original => { "original" => branch_sha(original) } },
-  }
-  write_state(state_path, state)
-
   begin
-    update_linear(start_branch, stack_list, opts, state, state_path, stacks_file, stacks)
+    update_linear(start_branch, stack_list, opts)
     sh!("git checkout #{original}")
-    state["status"] = "succeeded"
-    write_state(state_path, state)
-    warn "done. state retained at #{state_path} — run undo to revert."
+    warn "dry-run complete." if opts[:dry_run]
   rescue => e
-    state["status"] = "failed"
-    write_state(state_path, state) rescue nil
     warn "error: #{e.message}"
-    warn "operation failed; state kept at #{state_path}. Run abort to restore branches or resolve conflicts and run continue."
     exit 1
   end
 end
@@ -399,144 +261,6 @@ def run_push(opts)
   end
 
   sh!("git checkout #{original}") if current_branch != original
-end
-
-def restore_branches(state, state_path, allow_when_status:, on_drift:)
-  unless allow_when_status.include?(state["status"])
-    die("state file #{state_path} has status '#{state['status']}', expected one of #{allow_when_status.inspect}")
-  end
-
-  drifted = []
-  state["branches"].each do |branch, shas|
-    next unless shas["current"]
-    actual = branch_sha(branch)
-    drifted << "#{branch}: expected #{shas['current']}, got #{actual}" if actual != shas["current"]
-  end
-
-  unless drifted.empty?
-    warn "error: the following branches have drifted since the recorded operation:"
-    drifted.each { |d| warn "  #{d}" }
-    on_drift.call(state_path)
-    exit 1
-  end
-
-  state["branches"].each do |branch, shas|
-    next unless shas["original"]
-    sh!("git checkout #{branch}")
-    sh!("git reset --hard #{shas['original']}")
-  end
-
-  sh!("git checkout #{state['original_branch']}") if state["original_branch"]
-
-  File.delete(state_path)
-end
-
-def run_abort
-  abort_in_progress_git_op
-  matches = find_state_files_with_status("in_progress", "failed")
-  die("no in-progress or failed operation found under #{STATE_FILE_PREFIX}*") if matches.empty?
-  die("multiple non-succeeded state files found; clean up manually:\n  #{matches.join("\n  ")}") if matches.size > 1
-
-  state_path = matches.first
-  state = load_state(state_path)
-  warn "aborting operation (original branch: #{state['original_branch']}, status: #{state['status']})"
-
-  on_drift = ->(path) {
-    File.delete(path) if File.exist?(path)
-    warn "deleted state file at #{path}; no branches were modified."
-  }
-  restore_branches(state, state_path, allow_when_status: %w[in_progress failed], on_drift: on_drift)
-end
-
-def detect_in_progress_op
-  git_dir = capture("git rev-parse --git-dir") rescue nil
-  return nil unless git_dir
-  return :cherry_pick if File.exist?(File.join(git_dir, "CHERRY_PICK_HEAD"))
-  return :rebase if File.directory?(File.join(git_dir, "rebase-merge")) || File.directory?(File.join(git_dir, "rebase-apply"))
-  nil
-end
-
-def run_continue
-  matches = find_state_files_with_status("in_progress", "failed")
-  die("no in-progress or failed operation found under #{STATE_FILE_PREFIX}*") if matches.empty?
-  die("multiple non-succeeded state files found; clean up manually:\n  #{matches.join("\n  ")}") if matches.size > 1
-
-  state_path = matches.first
-  state = load_state(state_path)
-  warn "continuing operation (original branch: #{state['original_branch']})"
-
-  saved_opts = state["options"] || {}
-  opts = {
-    cherry_pick: saved_opts["cherry_pick"] || false,
-  }
-
-  stacks_file = find_stacks_file
-  die("no stacks file found (looked for: #{STACKS_FILE_CANDIDATES.join(', ')})") unless stacks_file
-  stacks = YAML.load_file(stacks_file)
-
-  in_flight, _ = state["branches"].find do |b, shas|
-    b != state["original_branch"] && shas["original"] && !shas["current"]
-  end
-
-  op = detect_in_progress_op
-  if op
-    warn "#{op} in progress; running git #{op == :cherry_pick ? 'cherry-pick' : 'rebase'} --continue"
-    cmd = (op == :cherry_pick) ? "git cherry-pick --continue" : "git rebase --continue"
-    sh!(cmd)
-  end
-
-  unless working_tree_clean?
-    die("working tree is not clean; resolve conflicts and stage/commit (or abort) before continue")
-  end
-
-  state["status"] = "in_progress"
-  write_state(state_path, state)
-
-  begin
-    if in_flight
-      head = current_branch
-      die("expected to be on '#{in_flight}' after continue but on '#{head}'") unless head == in_flight
-
-      state["branches"][in_flight]["current"] = branch_sha(in_flight)
-      write_state(state_path, state)
-
-      found = find_stack_containing(in_flight, stacks)
-      die("in-flight branch '#{in_flight}' no longer appears in #{stacks_file}") unless found
-      _name, stack_list = found
-      update_linear(in_flight, stack_list, opts, state, state_path, stacks_file, stacks)
-    end
-
-    sh!("git checkout #{state['original_branch']}")
-    state["status"] = "succeeded"
-    write_state(state_path, state)
-    warn "done. state retained at #{state_path} — run undo to revert."
-  rescue => e
-    state["status"] = "failed"
-    write_state(state_path, state) rescue nil
-    warn "error: #{e.message}"
-    warn "operation failed; state kept at #{state_path}. Run abort to restore branches or resolve conflicts and run continue."
-    exit 1
-  end
-end
-
-def run_undo
-  here = current_branch rescue nil
-  candidate = here ? state_file_for(here) : nil
-  state_path =
-    if candidate && File.exist?(candidate) && ((load_state(candidate)["status"] rescue nil) == "succeeded")
-      candidate
-    else
-      matches = find_state_files_with_status("succeeded")
-      die("no succeeded operation found under #{STATE_FILE_PREFIX}*") if matches.empty?
-      die("multiple succeeded state files found; clean up manually:\n  #{matches.join("\n  ")}") if matches.size > 1
-      matches.first
-    end
-
-  state = load_state(state_path)
-  warn "undoing operation (original branch: #{state['original_branch']})"
-
-  on_drift = ->(path) { warn "state file preserved at #{path}." }
-  restore_branches(state, state_path, allow_when_status: %w[succeeded], on_drift: on_drift)
 end
 
 def run_nav(mode)
@@ -650,15 +374,6 @@ def dispatch(argv)
   when "first", "last", "next", "prev"
     parse_bare_opts(argv, label: cmd)
     run_nav(cmd.to_sym)
-  when "abort"
-    parse_bare_opts(argv, label: "abort")
-    run_abort
-  when "continue"
-    parse_bare_opts(argv, label: "continue")
-    run_continue
-  when "undo"
-    parse_bare_opts(argv, label: "undo")
-    run_undo
   when "test"
     parse_bare_opts(argv, label: "test")
     run_test_suite
@@ -775,57 +490,6 @@ def scenario_happy_path(script)
   end
 end
 
-def scenario_undo(script)
-  make_branch("a", "main", "a.txt", "a\n")
-  make_branch("b", "a",    "b.txt", "b\n")
-  sh_quiet("git checkout -q main")
-  File.write("main2.txt", "v2\n")
-  sh_quiet("git add main2.txt && git commit -q -m mainv2")
-  a_orig = rev("a")
-  b_orig = rev("b")
-  write_stacks("s:\n  - main\n  - a\n  - b\n")
-  _, ok = sh_capture("ruby #{script} rebase --all")
-  assert(ok, "initial run failed")
-  out, ok = sh_capture("ruby #{script} undo")
-  assert(ok, "undo failed: #{out}")
-  assert(rev("a") == a_orig, "a not restored (got #{rev('a')} want #{a_orig})")
-  assert(rev("b") == b_orig, "b not restored (got #{rev('b')} want #{b_orig})")
-end
-
-def scenario_auto_prune(script)
-  make_branch("a", "main", "a.txt", "a\n")
-  make_branch("b", "a",    "b.txt", "b\n")
-  sh_quiet("git checkout -q main")
-  sh_quiet("git merge -q --ff-only a")
-  write_stacks("s:\n  - main\n  - a\n  - b\n")
-  out, ok = sh_capture("ruby #{script} rebase --all")
-  assert(ok, "script failed: #{out}")
-  stacks = YAML.load_file(".stacks.yml")
-  assert(!stacks["s"].include?("a"), "a was not pruned from .stacks.yml: #{stacks.inspect}")
-  assert(stacks["s"].include?("b"), "b should still be in stack: #{stacks.inspect}")
-end
-
-def scenario_abort_restores(script)
-  File.write("shared.txt", "v1\n")
-  sh_quiet("git add shared.txt && git commit -q -m shared")
-  make_branch("a", "main", "a.txt", "a\n")
-  sh_quiet("git checkout -q -b b a")
-  File.write("shared.txt", "b-version\n")
-  sh_quiet("git commit -q -am bedit")
-  sh_quiet("git checkout -q main")
-  File.write("shared.txt", "main-version\n")
-  sh_quiet("git commit -q -am mainedit")
-  a_orig = rev("a")
-  b_orig = rev("b")
-  write_stacks("s:\n  - main\n  - a\n  - b\n")
-  out, ok = sh_capture("ruby #{script} rebase --all")
-  assert(!ok, "expected failure on conflict, got success")
-  out2, ok2 = sh_capture("ruby #{script} abort")
-  assert(ok2, "abort failed: #{out2}")
-  assert(rev("a") == a_orig, "a not restored after abort")
-  assert(rev("b") == b_orig, "b not restored after abort")
-end
-
 def scenario_duplicate_branch(script)
   make_branch("a", "main", "a.txt", "a\n")
   sh_quiet("git checkout -q main")
@@ -848,14 +512,11 @@ def scenario_dry_run(script)
   a_orig = rev("a")
   b_orig = rev("b")
   write_stacks("s:\n  - main\n  - a\n  - b\n")
-  state_glob_before = Dir.glob("/tmp/.git-stacks-operation-*")
   out, ok = sh_capture("ruby #{script} rebase --all --dry-run")
   assert(ok, "dry-run failed: #{out}")
   assert(rev("a") == a_orig, "a should not have changed in dry-run")
   assert(rev("b") == b_orig, "b should not have changed in dry-run")
   assert(out.include?("[dry-run] git rebase"), "expected [dry-run] git rebase line in output:\n#{out}")
-  state_glob_after = Dir.glob("/tmp/.git-stacks-operation-*")
-  assert(state_glob_after == state_glob_before, "dry-run created a state file")
 end
 
 def current_head
@@ -1079,9 +740,6 @@ def run_test_suite
   scenarios = {
     "happy_path"             => method(:scenario_happy_path),
     "rebase_default_is_current_branch" => method(:scenario_rebase_default_is_current_branch),
-    "undo"                   => method(:scenario_undo),
-    "auto_prune"             => method(:scenario_auto_prune),
-    "abort_restores"         => method(:scenario_abort_restores),
     "duplicate_branch"       => method(:scenario_duplicate_branch),
     "dry_run"                => method(:scenario_dry_run),
     "status"                 => method(:scenario_status),
@@ -1096,7 +754,6 @@ def run_test_suite
   }
 
   scenarios.each do |name, m|
-    Dir.glob("/tmp/.git-stacks-operation-*").each { |f| File.delete(f) }
     runner.run(name) { |script| m.call(script) }
   end
 
