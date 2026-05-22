@@ -32,6 +32,7 @@ USAGE = <<~USAGE
     git stacks push [opts]              # push every non-base branch in the current stack
     git stacks first | last             # check out the first / last branch in the stack
     git stacks next  | prev             # check out the next / previous branch in the stack
+    git stacks switch <stack>           # check out the first branch unique to <stack>
     git stacks test                     # build a scratch repo and self-test the script
 
   rebase / cherry-pick options:
@@ -297,6 +298,39 @@ def run_nav(mode)
   print_branch_status_line(target, list, list.index(target), target.length)
 end
 
+def run_switch(stack_name)
+  die("not in a git repo") unless in_git_repo?
+
+  stacks_file = find_stacks_file
+  die("no stacks file found (looked for: #{STACKS_FILE_CANDIDATES.join(', ')})") unless stacks_file
+  stacks = YAML.load_file(stacks_file)
+  die("stacks file #{stacks_file} did not parse as a Hash") unless stacks.is_a?(Hash)
+
+  list = stacks[stack_name]
+  unless list.is_a?(Array)
+    available = stacks.keys.join(", ")
+    die("unknown stack '#{stack_name}' (available: #{available})")
+  end
+
+  other_branches = stacks.each_with_object([]) do |(name, other_list), acc|
+    next if name == stack_name
+    acc.concat(other_list) if other_list.is_a?(Array)
+  end
+
+  branch = current_branch
+  if list.include?(branch) && !other_branches.include?(branch)
+    puts "🎯✨ already on stack '#{stack_name}' (branch '#{branch}') 🚀"
+    return
+  end
+
+  target = list.find { |br| !other_branches.include?(br) }
+  die("every branch in stack '#{stack_name}' also appears in another stack") unless target
+
+  sh!("git checkout #{target}")
+  width = list.map(&:length).max
+  print_branch_status_line(target, list, list.index(target), width)
+end
+
 def run_status
   die("not in a git repo") unless in_git_repo?
 
@@ -346,6 +380,15 @@ def parse_push_opts(argv)
   opts
 end
 
+def parse_switch_opts(argv)
+  OptionParser.new do |o|
+    o.banner = "Usage: git stacks switch <stack>"
+    o.on("-h", "--help") { puts o; exit 0 }
+  end.parse!(argv)
+  die("switch requires exactly one stack name argument") unless argv.length == 1
+  argv.first
+end
+
 def parse_bare_opts(argv, label:)
   OptionParser.new do |o|
     o.banner = "Usage: git stacks #{label}"
@@ -374,6 +417,9 @@ def dispatch(argv)
   when "first", "last", "next", "prev"
     parse_bare_opts(argv, label: cmd)
     run_nav(cmd.to_sym)
+  when "switch"
+    stack_name = parse_switch_opts(argv)
+    run_switch(stack_name)
   when "test"
     parse_bare_opts(argv, label: "test")
     run_test_suite
@@ -717,6 +763,34 @@ def scenario_rebase_default_is_current_branch(script)
   assert(out.include?("stack base"), "missing expected error in:\n#{out}")
 end
 
+def scenario_switch(script)
+  make_branch("a", "main", "a.txt", "a\n")
+  make_branch("b", "a",    "b.txt", "b\n")
+  make_branch("x", "main", "x.txt", "x\n")
+  make_branch("y", "x",    "y.txt", "y\n")
+  write_stacks("s1:\n  - main\n  - a\n  - b\ns2:\n  - main\n  - x\n  - y\n")
+
+  sh_quiet("git checkout -q main")
+  out, ok = sh_capture("ruby #{script} switch s2")
+  assert(ok, "switch s2 failed: #{out}")
+  assert(current_head == "x", "expected x (first non-shared in s2), got #{current_head}")
+
+  out, ok = sh_capture("ruby #{script} switch s2")
+  assert(ok, "switch when already on stack failed: #{out}")
+  assert(out.include?("🎯"), "expected fun emoji message when already on stack:\n#{out}")
+  assert(current_head == "x", "head should not change when already on stack, got #{current_head}")
+
+  sh_quiet("git checkout -q b")
+  out, ok = sh_capture("ruby #{script} switch s1")
+  assert(ok, "switch when on b in s1 failed: #{out}")
+  assert(out.include?("🎯"), "expected fun emoji message:\n#{out}")
+  assert(current_head == "b", "head should not change, got #{current_head}")
+
+  out, ok = sh_capture("ruby #{script} switch nope")
+  assert(!ok, "expected switch to unknown stack to fail")
+  assert(out.include?("unknown stack"), "missing error message: #{out}")
+end
+
 def scenario_push_mutually_exclusive(script)
   make_branch("a", "main", "a.txt", "a\n")
   write_stacks("s:\n  - main\n  - a\n")
@@ -751,6 +825,7 @@ def run_test_suite
     "push_no_verify"         => method(:scenario_push_no_verify),
     "push_some_verify"       => method(:scenario_push_some_verify),
     "push_mutually_exclusive"=> method(:scenario_push_mutually_exclusive),
+    "switch"                 => method(:scenario_switch),
   }
 
   scenarios.each do |name, m|
