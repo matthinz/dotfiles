@@ -27,6 +27,7 @@ USAGE = <<~USAGE
 
     git stacks                          # alias for `status`
     git stacks status                   # show parent/remote sync grid for the current stack
+    git stacks diff [git-diff-args]     # diff the current branch against its parent
     git stacks rebase [opts]            # rebase each successor onto its predecessor
     git stacks cherry-pick [opts]       # reset child to parent, cherry-pick child's tip
     git stacks push [opts]              # push every non-base branch in the current stack
@@ -352,6 +353,37 @@ def run_status
   end
 end
 
+def run_diff(argv)
+  if %w[-h --help].include?(argv.first)
+    puts "Usage: git stacks diff [git-diff-args]"
+    puts "Diff the current branch against its parent in the stack."
+    puts "Any extra arguments (e.g. --name-only, --stat, -- path/) are passed to git diff."
+    exit 0
+  end
+
+  die("not in a git repo") unless in_git_repo?
+
+  stacks_file = find_stacks_file
+  die("no stacks file found (looked for: #{STACKS_FILE_CANDIDATES.join(', ')})") unless stacks_file
+
+  stacks = YAML.load_file(stacks_file)
+  die("stacks file #{stacks_file} did not parse as a Hash") unless stacks.is_a?(Hash)
+
+  branch = current_branch
+  found = find_stack_containing(branch, stacks)
+  die("current branch '#{branch}' does not appear in #{stacks_file}") unless found
+  _name, list = found
+
+  idx = list.index(branch)
+  die("'#{branch}' is the stack base; nothing to diff against") if idx.zero?
+  parent = list[idx - 1]
+  die("parent branch '#{parent}' is missing locally") unless branch_exists?(parent)
+
+  cmd = ["git", "diff", parent, *argv]
+  warn "+ #{cmd.join(' ')}"
+  system(*cmd) || exit($?.exitstatus || 1)
+end
+
 ### Subcommand dispatch
 
 def parse_rebase_opts(argv, label:)
@@ -408,6 +440,8 @@ def dispatch(argv)
   when "status"
     parse_bare_opts(argv, label: "status")
     run_status
+  when "diff"
+    run_diff(argv)
   when "rebase"
     run_update(parse_rebase_opts(argv, label: "rebase"))
   when "cherry-pick"
@@ -645,6 +679,30 @@ def scenario_status(script)
   assert(out.scan(/✅ rebased/).length >= 2, "expected 2+ rebased rows:\n#{out}")
 end
 
+def scenario_diff(script)
+  make_branch("a", "main", "a.txt", "a\n")
+  make_branch("b", "a",    "b.txt", "b\n")
+  write_stacks("s:\n  - main\n  - a\n  - b\n")
+  sh_quiet("git checkout -q b")
+
+  out, ok = sh_capture("ruby #{script} diff --name-only")
+  assert(ok, "diff --name-only failed: #{out}")
+  assert(out.include?("b.txt"), "expected b.txt in name-only diff:\n#{out}")
+  assert(!out.include?("a.txt"), "a.txt should not appear (already in parent a):\n#{out}")
+
+  # two-dot semantics: uncommitted working-tree edits are included
+  File.write("a.txt", "a changed\n")
+  out, ok = sh_capture("ruby #{script} diff --name-only")
+  assert(ok, "diff after uncommitted edit failed: #{out}")
+  assert(out.include?("a.txt"), "expected uncommitted a.txt edit to show (two-dot):\n#{out}")
+  sh_quiet("git checkout -q -- a.txt")
+
+  sh_quiet("git checkout -q main")
+  out, ok = sh_capture("ruby #{script} diff")
+  assert(!ok, "expected diff on stack base to fail")
+  assert(out.include?("stack base"), "missing expected error message:\n#{out}")
+end
+
 def scenario_default_is_status(script)
   make_branch("a", "main", "a.txt", "a\n")
   make_branch("b", "a",    "b.txt", "b\n")
@@ -817,6 +875,7 @@ def run_test_suite
     "duplicate_branch"       => method(:scenario_duplicate_branch),
     "dry_run"                => method(:scenario_dry_run),
     "status"                 => method(:scenario_status),
+    "diff"                   => method(:scenario_diff),
     "nav"                    => method(:scenario_nav),
     "last"                   => method(:scenario_last),
     "default_is_status"      => method(:scenario_default_is_status),
