@@ -11,3 +11,5 @@ MH-*
 # by default--it gets annoying to try to maintain one and ensure it's not
 # committed. use git add --force to bypass this.
 /.vscode
+
+**/.claude/settings.local.json
