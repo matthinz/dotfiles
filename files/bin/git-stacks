@@ -119,8 +119,21 @@ def branch_sha(branch)
   capture("git rev-parse #{branch}")
 end
 
+def stacks_search_roots
+  roots = [capture("git rev-parse --show-toplevel")]
+  main = capture("git worktree list --porcelain")
+           .lines.find { |l| l.start_with?("worktree ") }
+  roots << main.sub(/\Aworktree /, "").strip if main
+  roots.uniq
+end
+
 def find_stacks_file
-  STACKS_FILE_CANDIDATES.each { |name| return name if File.exist?(name) }
+  stacks_search_roots.each do |root|
+    STACKS_FILE_CANDIDATES.each do |name|
+      path = File.join(root, name)
+      return path if File.exist?(path)
+    end
+  end
   nil
 end
 
@@ -849,6 +862,31 @@ def scenario_switch(script)
   assert(out.include?("unknown stack"), "missing error message: #{out}")
 end
 
+def scenario_worktree_discovery(script)
+  make_branch("a", "main", "a.txt", "a\n")
+  # .stacks.yml lives at the main repo root only. It's git-ignored, so it does
+  # not travel into a linked worktree — exactly the case the fallback targets.
+  write_stacks("s:\n  - main\n  - a\n")
+  sh_quiet("git checkout -q main")
+
+  wt = File.expand_path("../wt-#{Process.pid}", Dir.pwd)
+  FileUtils.rm_rf(wt)
+  sh_quiet("git worktree add -q #{wt} a")
+
+  Dir.chdir(wt) do
+    assert(!File.exist?(".stacks.yml"), "precondition: .stacks.yml should not exist in worktree")
+    out, ok = sh_capture("ruby #{script} status")
+    assert(ok, "status in worktree failed: #{out}")
+    assert(out.include?("stack: s"), "expected main-repo .stacks.yml to be discovered from worktree:\n#{out}")
+
+    # A worktree-local file takes precedence over the main-repo fallback.
+    write_stacks("local:\n  - main\n  - a\n")
+    out, ok = sh_capture("ruby #{script} status")
+    assert(ok, "status with worktree-local file failed: #{out}")
+    assert(out.include?("stack: local"), "expected worktree-local .stacks.yml to win:\n#{out}")
+  end
+end
+
 def scenario_push_mutually_exclusive(script)
   make_branch("a", "main", "a.txt", "a\n")
   write_stacks("s:\n  - main\n  - a\n")
@@ -885,6 +923,7 @@ def run_test_suite
     "push_some_verify"       => method(:scenario_push_some_verify),
     "push_mutually_exclusive"=> method(:scenario_push_mutually_exclusive),
     "switch"                 => method(:scenario_switch),
+    "worktree_discovery"     => method(:scenario_worktree_discovery),
   }
 
   scenarios.each do |name, m|
