@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+#
+# Search only the lines ADDED/CHANGED in the most recent git commit (HEAD)
+# for the given text and print each match as filename:linenumber.
+#
+# Line numbers refer to the file's state in HEAD (the "new" side of the diff).
+#
+# Usage: ./search-commit.sh <text>
+
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 <text>" >&2
+  exit 1
+fi
+
+query="$1"
+
+# Walk the commit's unified diff. Hunk headers (@@ -a,b +c,d @@) give the
+# starting line number on the new side; with --unified=0 only added ('+')
+# lines follow, so we advance the counter per added line and test its content.
+git show --no-color --format= --unified=0 HEAD \
+  | awk -v q="$query" '
+      /^\+\+\+ / { file = substr($0, 5); sub(/^b\//, "", file); next }
+      /^@@ /     { ln = substr($3, 2) + 0; next }
+      /^\+/      { content = substr($0, 2)
+                   if (index(content, q) > 0) print file ":" ln
+                   ln++ }
+    '
