@@ -43,6 +43,9 @@ USAGE = <<~USAGE
     --dry-run            print destructive commands instead of running them
     --all                process every successor in the stack instead of just
                          the current branch
+    -N                   take the N newest commits, reset hard to the parent,
+                         then cherry-pick those N commits back in order
+                         (e.g. `git stacks rebase -3`). Implies cherry-pick.
 
   push options:
     --dry-run            print the push commands instead of running them
@@ -171,6 +174,14 @@ def find_stack_containing(branch, stacks)
   [name, list]
 end
 
+def commits_to_replay(parent, child, count)
+  ahead = capture("git rev-list --count #{parent}..#{child}").to_i
+  if count > ahead
+    raise "#{child} has only #{ahead} commit(s) not already in #{parent}; cannot replay #{count}"
+  end
+  capture("git rev-list --reverse -n #{count} #{child}").split("\n")
+end
+
 def update_linear(start_branch, stack_list, opts)
   i = stack_list.index(start_branch)
   raise "start branch #{start_branch} not in stack list" unless i
@@ -180,11 +191,11 @@ def update_linear(start_branch, stack_list, opts)
     parent = stack_list[i]
     child = stack_list[i + 1]
 
-    saved_sha = (opts[:cherry_pick] && !dry) ? branch_sha(child) : nil
+    saved_shas = opts[:cherry_pick] ? commits_to_replay(parent, child, opts[:count] || 1) : nil
     sh!("git checkout #{child}")
     if opts[:cherry_pick]
       maybe_sh!("git reset --hard #{parent}", dry_run: dry)
-      maybe_sh!("git cherry-pick #{saved_sha || '<saved-child-sha>'}", dry_run: dry)
+      maybe_sh!("git cherry-pick #{saved_shas.join(' ')}", dry_run: dry)
     else
       maybe_sh!("git rebase #{parent}", dry_run: dry)
     end
@@ -400,11 +411,22 @@ end
 ### Subcommand dispatch
 
 def parse_rebase_opts(argv, label:)
-  opts = { dry_run: false, cherry_pick: (label == "cherry-pick"), all: false }
+  opts = { dry_run: false, cherry_pick: (label == "cherry-pick"), all: false, count: nil }
+
+  counts = argv.grep(/\A-\d+\z/)
+  die("only one -N argument is allowed (got: #{counts.join(' ')})") if counts.length > 1
+  if (arg = counts.first)
+    argv.delete(arg)
+    opts[:count] = arg[1..].to_i
+    die("-N requires a count of at least 1") if opts[:count] < 1
+    opts[:cherry_pick] = true
+  end
+
   OptionParser.new do |o|
     o.banner = "Usage: git stacks #{label} [options]"
     o.on("--dry-run", "Print destructive commands instead of running them") { opts[:dry_run] = true }
     o.on("--all", "Process every successor in the stack instead of just the current branch") { opts[:all] = true }
+    o.separator "    -N                           Replay the N newest commits onto the parent (implies cherry-pick)"
     o.on("-h", "--help") { puts o; exit 0 }
   end.parse!(argv)
   die("unexpected arguments: #{argv.join(' ')}") unless argv.empty?
@@ -834,6 +856,38 @@ def scenario_rebase_default_is_current_branch(script)
   assert(out.include?("stack base"), "missing expected error in:\n#{out}")
 end
 
+def scenario_rebase_count(script)
+  make_branch("a", "main", "a.txt", "a\n")
+  sh_quiet("git checkout -q -b b a")
+  %w[b1 b2 b3].each do |f|
+    File.write("#{f}.txt", "#{f}\n")
+    sh_quiet("git add #{f}.txt && git commit -q -m #{f}")
+  end
+  sh_quiet("git checkout -q a")
+  File.write("a2.txt", "a2\n")
+  sh_quiet("git add a2.txt && git commit -q -m a2")
+  a_sha = rev("a")
+  write_stacks("s:\n  - main\n  - a\n  - b\n")
+
+  sh_quiet("git checkout -q b")
+  out, ok = sh_capture("ruby #{script} rebase -2")
+  assert(ok, "rebase -2 failed: #{out}")
+
+  _, b_has_a = sh_capture("git merge-base --is-ancestor #{a_sha} b")
+  assert(b_has_a, "b should contain new a commit:\n#{out}")
+  subjects = `git log --format=%s -3 b`.split("\n")
+  assert(subjects == %w[b3 b2 a2], "expected b3,b2,a2 on top of b; got #{subjects.inspect}\n#{out}")
+  assert(!File.exist?("b1.txt"), "b1 commit should have been dropped by -2")
+
+  out, ok = sh_capture("ruby #{script} rebase -99")
+  assert(!ok, "expected -99 to fail")
+  assert(out.include?("cannot replay 99"), "missing expected error in:\n#{out}")
+
+  out, ok = sh_capture("ruby #{script} rebase -0")
+  assert(!ok, "expected -0 to fail")
+  assert(out.include?("at least 1"), "missing expected error in:\n#{out}")
+end
+
 def scenario_switch(script)
   make_branch("a", "main", "a.txt", "a\n")
   make_branch("b", "a",    "b.txt", "b\n")
@@ -910,6 +964,7 @@ def run_test_suite
   scenarios = {
     "happy_path"             => method(:scenario_happy_path),
     "rebase_default_is_current_branch" => method(:scenario_rebase_default_is_current_branch),
+    "rebase_count"           => method(:scenario_rebase_count),
     "duplicate_branch"       => method(:scenario_duplicate_branch),
     "dry_run"                => method(:scenario_dry_run),
     "status"                 => method(:scenario_status),
