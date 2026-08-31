@@ -26,7 +26,6 @@
   "window.zoomLevel": 1,
   "redhat.telemetry.enabled": false,
   "editor.accessibilitySupport": "off",
-  "workbench.colorTheme": "Solarized Dark",
   "markdown.styles": [
     "https://cdn.jsdelivr.net/gh/dhdhagar/vscode-md-preview-light/style.min.css"
   ],
@@ -47,5 +46,16 @@
   "remote.SSH.reconnectionGraceTime": 28800,
   "remote.SSH.serverShutdownTimeout": 28800,
   "remote.SSH.maxReconnectionAttempts": null,
-  "claudeCode.preferredLocation": "panel"
+  "claudeCode.preferredLocation": "panel",
+  "intellij.region": "americas",
+  "intellij.dataSharing": "none",
+  "git.blame.editorDecoration.enabled": true,
+  "workbench.colorCustomizations": {
+      "[Dark 2026]": {
+        "tab.activeBackground": "#131414",
+        "tab.inactiveBackground": "#2d2d2d",
+        "tab.unfocusedActiveBackground": "#131414",
+        "tab.unfocusedInactiveBackground": "#2d2d2d"
+      }
+  },
 }
