@@ -32,7 +32,11 @@ USAGE = <<~USAGE
     git stacks cherry-pick [opts]       # reset child to parent, cherry-pick child's tip
     git stacks push [opts]              # push every non-base branch in the current stack
     git stacks first | last             # check out the first / last branch in the stack
-    git stacks next  | prev             # check out the next / previous branch in the stack
+    git stacks next  | prev [opts]      # check out the next / previous branch in the stack
+
+  next / prev options:
+    -f, --force          create the target branch (from the current commit)
+                         if it does not already exist
     git stacks switch <stack>           # check out the first branch unique to <stack>
     git stacks test                     # build a scratch repo and self-test the script
 
@@ -289,7 +293,7 @@ def run_push(opts)
   sh!("git checkout #{original}") if current_branch != original
 end
 
-def run_nav(mode)
+def run_nav(mode, force: false)
   die("not in a git repo") unless in_git_repo?
 
   stacks_file = find_stacks_file
@@ -319,7 +323,13 @@ def run_nav(mode)
       list[i - 1]
     end
 
-  sh!("git checkout #{target}")
+  if branch_exists?(target)
+    sh!("git checkout #{target}")
+  elsif force
+    sh!("git checkout -b #{target}")
+  else
+    die("branch '#{target}' does not exist locally (use --force to create it)")
+  end
   print_branch_status_line(target, list, list.index(target), target.length)
 end
 
@@ -456,6 +466,17 @@ def parse_switch_opts(argv)
   argv.first
 end
 
+def parse_nav_opts(argv, label:)
+  opts = { force: false }
+  OptionParser.new do |o|
+    o.banner = "Usage: git stacks #{label} [opts]"
+    o.on("-f", "--force", "Create the target branch if it does not already exist") { opts[:force] = true }
+    o.on("-h", "--help") { puts o; exit 0 }
+  end.parse!(argv)
+  die("unexpected arguments: #{argv.join(' ')}") unless argv.empty?
+  opts
+end
+
 def parse_bare_opts(argv, label:)
   OptionParser.new do |o|
     o.banner = "Usage: git stacks #{label}"
@@ -483,9 +504,12 @@ def dispatch(argv)
     run_update(parse_rebase_opts(argv, label: "cherry-pick"))
   when "push"
     run_push(parse_push_opts(argv))
-  when "first", "last", "next", "prev"
+  when "first", "last"
     parse_bare_opts(argv, label: cmd)
     run_nav(cmd.to_sym)
+  when "next", "prev"
+    nav_opts = parse_nav_opts(argv, label: cmd)
+    run_nav(cmd.to_sym, force: nav_opts[:force])
   when "switch"
     stack_name = parse_switch_opts(argv)
     run_switch(stack_name)
