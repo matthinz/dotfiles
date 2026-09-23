@@ -3,16 +3,10 @@
 # Homebrew path can vary based on macOS version / platform.
 export PATH=/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:${HOME}/bin:$PATH
 
-export GPG_TTY=$TTY
+# asdf wants to be on $PATH
+export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
 
-if type brew &> /dev/null; then
-  ASDF_PREFIX=$(brew --prefix asdf 2>/dev/null)
-  if [ "$ASDF_PREFIX" != "" ]; then
-    if [ -f "${ASDF_PREFIX}/libexec/asdf.sh" ]; then
-      . "${ASDF_PREFIX}/libexec/asdf.sh"
-    fi
-  fi
-fi
+export GPG_TTY=$TTY
 
 if [ -f ~/.orbstack/shell/init.zsh ]; then
   source ~/.orbstack/shell/init.zsh 2>/dev/null || :
