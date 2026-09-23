@@ -8,7 +8,9 @@ export GPG_TTY=$TTY
 if type brew &> /dev/null; then
   ASDF_PREFIX=$(brew --prefix asdf 2>/dev/null)
   if [ "$ASDF_PREFIX" != "" ]; then
-    . "${ASDF_PREFIX}/libexec/asdf.sh"
+    if [ -f "${ASDF_PREFIX}/libexec/asdf.sh" ]; then
+      . "${ASDF_PREFIX}/libexec/asdf.sh"
+    fi
   fi
 fi
 
