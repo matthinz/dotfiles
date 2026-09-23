@@ -23,5 +23,4 @@ brew_install rclone
 brew_install rectangle
 brew_install starship
 brew_install the_silver_searcher
-brew_install visual-studio-code
 brew_install zsh-completions
