@@ -50,3 +50,12 @@ which starship > /dev/null 2>&1 && eval "$(starship init zsh)"
 
 # Aliases
 alias dcr="docker compose run --quiet --rm"
+
+# Claude mouse support extremely questionable
+export CLAUDE_CODE_DISABLE_MOUSE=1
+
+if ! which code > /dev/null 2>&1; then
+  if which codium > /dev/null 2>&1; then
+    alias code=codium
+  fi
+fi
